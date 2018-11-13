@@ -21,6 +21,7 @@
     <Compile Include="AssemblyInfo.fs" />
     <Compile Include="QueryableProvider.Runtime.fs" />
     <None Include="paket.references" />
+    <None Include="script.fsx" />
   </ItemGroup>
   <ItemGroup>
     <!-- Be explicit about the version of FSharp.Core since we mention it in the manual nuget package spec -->

@@ -5,7 +5,6 @@ open System.Linq
 open System.Linq.Expressions
 open System.Reflection
 open Microsoft.FSharp.Reflection
-open Microsoft.FSharp.Linq
 
 module Expr =  
 
@@ -25,13 +24,14 @@ module Expr =
     type QueryExpr = 
         | Binary of BinOp * QueryExpr * QueryExpr
         | Unary of UnOp * QueryExpr
+        | Const of Type * obj
         | MemberAccess of MemberInfo
 
     type Query = 
-        { Where : QueryExpr option
+        { Filter : (Type * QueryExpr) option
           Projections : QueryExpr list }
         static member Empty = 
-            { Where = None; Projections = [] }
+            { Filter = None; Projections = [] }
 
 
 module Patterns = 
@@ -74,7 +74,35 @@ module Patterns =
             | _, _ -> None
         | _ -> None
 
+    let (|PropertyGet|_|) (e:Expression) = 
+         match e with 
+         | :? MemberExpression as me -> 
+            Some(Expr.MemberAccess me.Member)
+         | _ -> None 
 
+    let (|Constant|_|) (e:Expression) =
+        match e with
+        | :? ConstantExpression as ce -> Some(Expr.Const(ce.Type, ce.Value))
+        | _ -> None
+    
+    let (|BinaryExpression|_|) (e:Expression) =
+        let mapBinaryOperator = function
+            | ExpressionType.Equal -> Expr.Eq
+            | ExpressionType.LessThan -> Expr.Lt
+            | ExpressionType.LessThanOrEqual -> Expr.Lte
+            | ExpressionType.GreaterThan -> Expr.Gt
+            | ExpressionType.GreaterThanOrEqual -> Expr.Gte
+            | ExpressionType.AndAlso -> Expr.And 
+            | ExpressionType.OrElse -> Expr.Or
+            | a -> failwithf "Unable to map %A to a binary op." a
+        
+        match e with 
+        | :? System.Linq.Expressions.BinaryExpression as expr -> 
+            let op = mapBinaryOperator expr.NodeType
+            Some (op, expr.Left, expr.Right)
+        | _ -> None
+
+    
 module Expression = 
 
     open Expr
@@ -100,15 +128,16 @@ module Expression =
     let tupleToAnonType  (ty:Type) = 
         let t = ty.GetGenericTypeDefinition()
         tupleToAnonymousTypeMap.[ty]
+
     let map state (e:Expression) = 
-        let walk state (e:Expression) = 
+        let rec walk state (e:Expression) = 
             printfn "Walking %A" e
             match e with 
-            | MethodCall(None, (MethodWithName "Select"), [source; (Quote (LambdaProjection (retType, projs)))]) ->
-                let source = (source :?> ConstantExpression)
-                let r = { state with Projections = projs |> List.map MemberAccess }
-                printfn "Ret: %A" r
-                r
+            | MethodCall(None, (MethodWithName "Where"), [_; (Quote (Lambda (source, BinaryExpression(op, (PropertyGet l | Constant l), (PropertyGet r | Constant r)))))]) ->
+                printfn "Where %A %A %A" op l r
+                { state with Filter = (Some (source.[0].Type, Binary(op, l, r))) }
+            | MethodCall(None, (MethodWithName "Select"), [_; (Quote (LambdaProjection (_, projs)))]) ->
+                { state with Projections = projs |> List.map MemberAccess }
             | _ -> state
 
         walk state e
@@ -127,12 +156,16 @@ type QueryProvider(state, executor : Expr.Query -> seq<obj>) =
             let a, b = reduceType a, reduceType b 
             if a = b 
             then a 
-            else failwithf "Unmatching types %A %A" a b 
+            else failwithf "Unmatching types in binary expression %A %A" a b
+        | Expr.Const (ty, _) -> ty
 
     let toIQueryable (query:Expr.Query) = 
         let returnType = 
             match query.Projections with 
-            | [] -> typeof<unit>
+            | [] ->
+                match query.Filter with
+                | Some (t, _) -> t
+                | None -> typeof<Unit>
             | [a] -> reduceType a
             | a -> 
                  List.map reduceType a 
@@ -156,11 +189,10 @@ type QueryProvider(state, executor : Expr.Query -> seq<obj>) =
             Expression.map state e |> executor |> box
 
         member x.Execute<'a>(e:Expression) : 'a =
-            let ty = typeof<'a>
-            let result = Expression.map state e |> executor
-            if isNull(ty.GetInterface(typeof<System.Collections.Generic.IEnumerable<'a>>.Name))
-            then result |> unbox<'a>
-            else result |> unbox<'a>
+            printfn "Execute %A" e
+            Expression.map state e 
+            |> executor
+            |> unbox<'a>
 
 and Queryable<'T>(state, executor) =
      
