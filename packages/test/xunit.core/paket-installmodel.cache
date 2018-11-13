@@ -1,0 +1,17 @@
+D: /build
+F: /build/xunit.core.props
+F: /build/xunit.core.targets
+D: /buildMultiTargeting
+F: /buildMultiTargeting/xunit.core.props
+F: /buildMultiTargeting/xunit.core.targets
+D: /package
+D: /package/services
+D: /package/services/metadata
+D: /package/services/metadata/core-properties
+F: /package/services/metadata/core-properties/929de7b81e6f4062812c1a95465898c7.psmdcp
+D: /_rels
+F: /_rels/.rels
+F: /.signature.p7s
+F: /xunit.core.2.4.1.nupkg
+F: /xunit.core.nuspec
+F: /[Content_Types].xml

@@ -1,0 +1,9 @@
+FSharp.Core,4.3.4,Direct,Test,false,true
+Microsoft.NETCore.Platforms,2.1.1,Transitive,Test,false,true
+xunit.abstractions,2.0.3,Transitive,Test,false,true
+xunit.analyzers,0.10,Transitive,Test,false,true
+xunit.assert,2.4.1,Transitive,Test,false,true
+xunit.extensibility.core,2.4.1,Transitive,Test,false,true
+xunit.extensibility.execution,2.4.1,Transitive,Test,false,true
+xunit.core,2.4.1,Transitive,Test,false,true
+Xunit,2.4.1,Direct,Test,false,true

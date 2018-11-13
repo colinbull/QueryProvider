@@ -1,0 +1,8 @@
+C:\Appdev\Playground\QueryableProvider\src\QueryableProvider.Runtime\bin\Debug\netstandard2.0\QueryableProvider.Runtime.deps.json
+C:\Appdev\Playground\QueryableProvider\src\QueryableProvider.Runtime\bin\Debug\netstandard2.0\QueryableProvider.Runtime.dll
+C:\Appdev\Playground\QueryableProvider\src\QueryableProvider.Runtime\bin\Debug\netstandard2.0\QueryableProvider.Runtime.pdb
+C:\Appdev\Playground\QueryableProvider\src\QueryableProvider.Runtime\obj\Debug\netstandard2.0\QueryableProvider.Runtime.fsprojAssemblyReference.cache
+C:\Appdev\Playground\QueryableProvider\src\QueryableProvider.Runtime\obj\Debug\netstandard2.0\QueryableProvider.Runtime.AssemblyInfoInputs.cache
+C:\Appdev\Playground\QueryableProvider\src\QueryableProvider.Runtime\obj\Debug\netstandard2.0\QueryableProvider.Runtime.AssemblyInfo.fs
+C:\Appdev\Playground\QueryableProvider\src\QueryableProvider.Runtime\obj\Debug\netstandard2.0\QueryableProvider.Runtime.dll
+C:\Appdev\Playground\QueryableProvider\src\QueryableProvider.Runtime\obj\Debug\netstandard2.0\QueryableProvider.Runtime.pdb

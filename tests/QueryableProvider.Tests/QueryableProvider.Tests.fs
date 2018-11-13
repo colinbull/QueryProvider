@@ -2,6 +2,8 @@ module QueryableProviderTests
 
 
 open MyNamespace
-open NUnit.Framework
+open Xunit
 
-
+[<Fact>]
+let ``test``() = 
+    Assert.True(true)

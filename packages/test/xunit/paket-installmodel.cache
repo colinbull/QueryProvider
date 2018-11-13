@@ -1,0 +1,11 @@
+D: /package
+D: /package/services
+D: /package/services/metadata
+D: /package/services/metadata/core-properties
+F: /package/services/metadata/core-properties/71da66ae398b470a9eba166f992f1037.psmdcp
+D: /_rels
+F: /_rels/.rels
+F: /.signature.p7s
+F: /xunit.2.4.1.nupkg
+F: /xunit.nuspec
+F: /[Content_Types].xml

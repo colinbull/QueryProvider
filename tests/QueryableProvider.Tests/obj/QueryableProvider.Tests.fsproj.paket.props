@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<Project ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <MSBuildAllProjects>$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
+        <PaketPropsVersion>5.185.3</PaketPropsVersion>
+        <PaketPropsLoaded>true</PaketPropsLoaded>
+    </PropertyGroup>
+
+    <ItemGroup Condition="($(DesignTimeBuild) == true) AND (('$(TargetFramework)' == 'net461') OR ('$(TargetFramework)' == 'netcoreapp2.0') OR ('$(TargetFramework)' == 'netcoreapp20'))">
+        <PackageReference Include="FSharp.Core">
+            <Version>4.3.4</Version>
+        </PackageReference>
+        <PackageReference Include="xunit.abstractions">
+            <Version>2.0.3</Version>
+        </PackageReference>
+        <PackageReference Include="xunit.analyzers">
+            <Version>0.10</Version>
+        </PackageReference>
+        <PackageReference Include="xunit.assert">
+            <Version>2.4.1</Version>
+        </PackageReference>
+        <PackageReference Include="xunit.extensibility.core">
+            <Version>2.4.1</Version>
+        </PackageReference>
+        <PackageReference Include="xunit.extensibility.execution">
+            <Version>2.4.1</Version>
+        </PackageReference>
+        <PackageReference Include="xunit.core">
+            <Version>2.4.1</Version>
+        </PackageReference>
+        <PackageReference Include="xunit">
+            <Version>2.4.1</Version>
+        </PackageReference>
+    </ItemGroup>
+    <ItemGroup Condition="($(DesignTimeBuild) == true) AND (('$(TargetFramework)' == 'netcoreapp2.0') OR ('$(TargetFramework)' == 'netcoreapp20'))">
+        <PackageReference Include="Microsoft.NETCore.Platforms">
+            <Version>2.1.1</Version>
+        </PackageReference>
+        <PackageReference Include="NETStandard.Library">
+            <Version>2.0.3</Version>
+        </PackageReference>
+    </ItemGroup>
+</Project>
