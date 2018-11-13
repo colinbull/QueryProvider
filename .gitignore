@@ -182,5 +182,3 @@ UpgradeLog*.htm
 # Microsoft Fakes
 FakesAssemblies/
 [Pp]ackages/
-[Bb]in/
-[Oo]bj/
