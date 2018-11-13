@@ -1,0 +1,39 @@
+type file
+id QueryableProvider
+authors
+    Steffen Forkmann, Gustavo Guerra, JohnDoeKyrgyz, Don Syme
+owners
+    Steffen Forkmann, Gustavo Guerra, JohnDoeKyrgyz, Don Syme
+projectUrl
+    http://github.com/fsprojects/QueryableProvider
+iconUrl
+    https://raw.githubusercontent.com/fsprojects/QueryableProvider/master/docs/files/img/logo.png
+licenseUrl
+    http://github.com/fsprojects/QueryableProvider/blob/master/LICENSE.txt
+requireLicenseAcceptance
+    false
+tags
+    F# fsharp typeproviders QueryableProvider
+summary
+    This library is for the .NET platform implementing QueryableProvider.
+description
+    This library is for the .NET platform implementing QueryableProvider.
+tags
+    F# fsharp typeproviders QueryableProvider
+files
+    bin/Release/net45/QueryableProvider.Runtime.* ==> lib/net45
+    bin/Release/netstandard2.0/QueryableProvider.Runtime.* ==> lib/netstandard2.0
+    bin/Release/typeproviders/fsharp41/netstandard2.0/*.dll ==> typeproviders/fsharp41/netstandard2.0
+    bin/Release/typeproviders/fsharp41/netcoreapp2.0/*.dll ==> typeproviders/fsharp41/netcoreapp2.0
+    bin/Release/typeproviders/fsharp41/net45/*.dll ==> typeproviders/fsharp41/net45
+references
+    QueryableProvider.Runtime.dll
+dependencies
+  FSharp.Core >= LOCKEDVERSION
+
+# put any package references here
+#  Some.Package
+#  framework: netcoreapp2.0
+#    System.Text.Encoding.CodePages >= LOCKEDVERSION
+#  framework: netstandard2.0
+#    System.Text.Encoding.CodePages >= LOCKEDVERSION
