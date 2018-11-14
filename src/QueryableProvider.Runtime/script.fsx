@@ -1,7 +1,9 @@
 #load "QueryableProvider.Runtime.fs"
 
 open MyNamespace
+open System
 open System.Reflection
+
 
 type Course = {
     CourseId : int
@@ -27,26 +29,15 @@ let students = [
     { StudentId = 4; Name = "Sophie"; Age = 21 }
     { StudentId = 5; Name = "Richard"; Age = 20 }
 ]
+   
 
-let applyProjection (ma:MemberInfo) (a:obj) = 
-    match ma.MemberType with 
-    | MemberTypes.Property -> (ma :?> PropertyInfo).GetValue(a)
-    | MemberTypes.Method -> (ma :?> MethodInfo).Invoke(a, [||]) 
-    | MemberTypes.Field -> (ma :?> FieldInfo).GetValue(a)
-    | a -> failwithf "Unable to reduce type %A" a
-
-let q = new Queryable<Student>(Expr.Query.Empty, fun q -> 
+let q = new Queryable<Student>(Expr.Query.Empty, fun (ty, q) -> 
     printfn "%A" q
-    let t = 
-        q.Projections 
-        |> List.map (function 
-                     | Expr.MemberAccess ma -> 
-                        fun x -> System.Convert.ChangeType(applyProjection ma x, typeof<int>) 
-                     | a -> failwithf "Unknown %A" a)
+    let projection = Expr.preComputeProjectionExpression ty q 
+    let filter = Expr.preComputeFilterExpression q
     seq{
-        for s in students do 
-            for p in t do 
-                yield (p s)
+        for s in students |> Seq.filter filter do 
+            yield projection s     
     } 
 )
 
@@ -54,5 +45,5 @@ let sudentProjection =
     query { 
         for student in q do
         where (student.Age = 20)
-        select student.Age
+        select (student.Name, student.Age, student.StudentId)
     } |> Seq.toArray

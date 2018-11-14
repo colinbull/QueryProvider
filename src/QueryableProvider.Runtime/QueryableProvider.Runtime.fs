@@ -5,6 +5,27 @@ open System.Linq
 open System.Linq.Expressions
 open System.Reflection
 open Microsoft.FSharp.Reflection
+open System.Runtime.CompilerServices
+
+[<AutoOpen>]
+module Extensions = 
+
+    type MemberInfo with 
+
+    [<Extension>]
+    member ma.GetValue(a:obj) = 
+        match ma.MemberType with 
+        | MemberTypes.Property -> 
+            let prop = (ma :?> PropertyInfo)
+            prop.GetValue(a)
+        | MemberTypes.Method -> 
+            let methd = (ma :?> MethodInfo)
+            methd.Invoke(a, [||])
+        | MemberTypes.Field -> 
+            let fld = (ma :?> FieldInfo)
+            fld.GetValue(a)
+        | _ -> failwithf "Unable to get member info value for type %A" ma.MemberType
+    
 
 module Expr =  
 
@@ -33,6 +54,35 @@ module Expr =
         static member Empty = 
             { Filter = None; Projections = [] }
 
+    let getValue (q:QueryExpr) = 
+        match q with 
+        | Const (t, o) -> (fun _ -> o)
+        | MemberAccess ma -> ma.GetValue
+        | a -> failwithf "Unable to get value from %A" a
+
+    let preComputeFilterExpression (q:Query) = 
+        match q.Filter with 
+        | None -> (fun _ -> true)
+        | Some (_,x) -> 
+            let rec walkExpr (q:QueryExpr) = 
+                match q with
+                |  Binary(op, x ,y) -> 
+                    match op with 
+                    | Eq -> (fun s -> (getValue x s) = (getValue y s))
+                    | Gt -> (fun s -> (Unchecked.compare (getValue x s) (getValue y s) > 0))
+                    | Lt -> (fun s -> (Unchecked.compare (getValue x s) (getValue y s) < 0))
+                    | Gte -> (fun s -> (Unchecked.compare (getValue x s) (getValue y s) >= 0))
+                    | Lte -> (fun s -> (Unchecked.compare (getValue x s) (getValue y s) <= 0))
+                    | And -> (fun s -> (walkExpr x s) && (walkExpr y s))
+                    | Or -> (fun s -> (walkExpr x s) || (walkExpr y s))
+                | _ -> failwithf "%A not supported for filter expressions" q
+            walkExpr x
+
+    let preComputeProjectionExpression (ty:Type) (q:Query) = 
+        let projected = 
+            q.Projections |> List.map getValue
+
+        fun x -> Activator.CreateInstance(ty, [| for projection in projected -> (projection x)|]) 
 
 module Patterns = 
 
@@ -125,9 +175,10 @@ module Expression =
         for (tupleTy,anonTy) in tupleTypes do dict.[tupleTy] <- anonTy
         dict        
 
-    let tupleToAnonType  (ty:Type) = 
+    let tupleToAnonType (ty:Type) = 
         let t = ty.GetGenericTypeDefinition()
-        tupleToAnonymousTypeMap.[ty]
+        let mappedAnonType = tupleToAnonymousTypeMap.[t]
+        mappedAnonType.MakeGenericType(ty.GenericTypeArguments)
 
     let map state (e:Expression) = 
         let rec walk state (e:Expression) = 
@@ -142,7 +193,7 @@ module Expression =
 
         walk state e
 
-type QueryProvider(state, executor : Expr.Query -> seq<obj>) =
+type QueryProvider(state, executor : (Type * Expr.Query) -> seq<obj>) =
     let rec reduceType (expr:Expr.QueryExpr) = 
         match expr with 
         | Expr.MemberAccess ma ->
@@ -159,20 +210,21 @@ type QueryProvider(state, executor : Expr.Query -> seq<obj>) =
             else failwithf "Unmatching types in binary expression %A %A" a b
         | Expr.Const (ty, _) -> ty
 
-    let toIQueryable (query:Expr.Query) = 
-        let returnType = 
-            match query.Projections with 
-            | [] ->
-                match query.Filter with
-                | Some (t, _) -> t
-                | None -> typeof<Unit>
-            | [a] -> reduceType a
-            | a -> 
-                 List.map reduceType a 
-                 |> List.toArray 
-                 |> FSharpType.MakeTupleType
-                 |> Expression.tupleToAnonType
+    let computeProjectedType (query:Expr.Query) = 
+        match query.Projections with 
+        | [] ->
+            match query.Filter with
+            | Some (t, _) -> t
+            | None -> typeof<Unit>
+        | [a] -> reduceType a
+        | a -> 
+             List.map reduceType a 
+             |> List.toArray 
+             |> FSharpType.MakeTupleType
+             |> Expression.tupleToAnonType
 
+    let toIQueryable (query:Expr.Query) =
+        let returnType = computeProjectedType query
         let ty = typedefof<Queryable<_>>.MakeGenericType(returnType)
         ty.GetConstructors().[0].Invoke([|query; executor|]) :?> IQueryable
     
@@ -186,13 +238,12 @@ type QueryProvider(state, executor : Expr.Query -> seq<obj>) =
             |> toIQueryable  
             :?> IQueryable<'T>
         member x.Execute(e:Expression) : obj =
-            Expression.map state e |> executor |> box
+            let query = Expression.map state e 
+            executor (computeProjectedType query, query)  |> box
 
         member x.Execute<'a>(e:Expression) : 'a =
-            printfn "Execute %A" e
-            Expression.map state e 
-            |> executor
-            |> unbox<'a>
+            let query = Expression.map state e 
+            executor (computeProjectedType query, query) |> unbox<'a>
 
 and Queryable<'T>(state, executor) =
      
