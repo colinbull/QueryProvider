@@ -1,12 +1,32 @@
-select                  [x]
-where                   [X]
-contains                [X]
-count
-last
-lastOrDefault
-exactlyOne
+Working
+=======
+
+select             
+where              
+contains           
+count              
+last               
+lastOrDefault      
+exactlyOne         
 exactlyOneOrDefault
-headOrDefault
+head               
+headOrDefault      
+averageBy   
+nth       
+
+Sort of working
+===============
+
+sumBy                //Issue with ints invalid cast
+
+
+Not working
+===========
+
+distinct
+exists
+find
+all
 minBy
 maxBy
 groupBy
@@ -22,16 +42,9 @@ sumByNullable
 minByNullable
 maxByNullable
 averageByNullable
-averageBy
-distinct
-exists
-find
-all
-head
-nth
+
 skip
 skipWhile
-sumBy                   [X]
 take
 takeWhile
 sortByNullable

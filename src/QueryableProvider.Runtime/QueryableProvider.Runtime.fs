@@ -162,7 +162,7 @@ module Expression =
         | PropertyGet e -> e
         | BinaryExpression(op, l, r) -> 
             Expr.Binary(op, map l, map r)
-        | a -> failwithf "Could not walk unsupported: %A" a
+        | a -> failwithf "Could not map expression unsupported: %A" a
 
     let rec reduceType (expr:Expr.QueryExpr) = 
         match expr with
@@ -218,8 +218,9 @@ module Expression =
                     { state with Projections = Some(Vector(projs |> List.map MemberAccess)) }
             | MethodCall(None, method, [_; (Quote (LambdaProjection (_, projs)))]) ->
                 { state with Projections = mergeProjections state.Projections (Some(Scalar(MethodCall(method, projs |> List.map MemberAccess)))) }
-            | MethodCall(None, method, [_; (Constant e)]) ->
-                { state with Projections = mergeProjections state.Projections (Some(Scalar(MethodCall(method, [e])))) }
+            | MethodCall(None, method, args) ->
+                printfn "Calling: %A" method.Name
+                { state with Projections = mergeProjections state.Projections (Some(Scalar(MethodCall(method, args.[1..] |> List.map map)))) }
             | _ -> state
 
         walk state e

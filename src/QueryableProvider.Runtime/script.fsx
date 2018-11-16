@@ -24,10 +24,24 @@ module ExampleImplementation =
         | Scalar (MethodCall (method, parameters)) -> 
             match method.Name with 
             | "Sum" -> (fun xs -> Convert.ChangeType(xs |> unbox<seq<obj>> |> Seq.sumBy (fun x -> unbox<float>(getValue parameters.[0] x)), ty))
+            | "Average" -> (fun xs -> Convert.ChangeType(xs |> unbox<seq<obj>> |> Seq.averageBy (fun x -> unbox<float>(getValue parameters.[0] x)), ty))
+            | "Skip" ->
+                let konst = unbox<int> ((getValue parameters.[0]) Unchecked.defaultof<obj>)
+                (fun xs -> Enumerable.Skip(unbox<_> xs, konst) |> box)
             | "Contains" ->
                 let konst = (getValue parameters.[0]) Unchecked.defaultof<obj>
-                (fun xs -> xs |> unbox<seq<obj>> |> Seq.contains (unbox<_> konst) |> box)
-            | a -> (fun x -> box(seq { yield Activator.CreateInstance(ty) }))
+                (fun xs -> Enumerable.Contains(unbox<_> xs, konst) |> box)
+            | "ElementAt" ->
+                let konst = unbox<int> ((getValue parameters.[0]) Unchecked.defaultof<obj>)
+                (fun xs -> Enumerable.ElementAt(unbox<_> xs, konst) |> box)   
+            | "Count" -> (fun xs -> Enumerable.Count(unbox<_> xs) |> box)
+            | "First" -> (fun xs -> Enumerable.First(unbox<_> xs) |> box)
+            | "FirstOrDefault" -> (fun xs -> Enumerable.FirstOrDefault(unbox<_> xs) |> box)
+            | "Last" -> (fun xs -> Enumerable.Last(unbox<_> xs) |> box)
+            | "LastOrDefault" -> (fun xs -> Enumerable.LastOrDefault(unbox<_> xs) |> box)
+            | "Single" -> (fun xs -> Enumerable.Single(unbox<_> xs) |> box)
+            | "SingleOrDefault" -> (fun xs -> Enumerable.SingleOrDefault(unbox<_> xs) |> box) 
+            | a -> id
         | Scalar a -> (fun xs -> box(seq { for x in xs |> unbox<seq<obj>> do yield getValue a x }))  
         | Vector a ->
             let projected = a |> List.map getValue 
@@ -90,25 +104,22 @@ type Student = {
     StudentId : int
     Name : string
     Age : int
+    Grade : float 
 }
 let students = [
-    { StudentId = 1; Name = "Tom"; Age = 21 }
-    { StudentId = 2; Name = "Dave"; Age = 21 }
-    { StudentId = 3; Name = "Anna"; Age = 22 }
-    { StudentId = 4; Name = "Sophie"; Age = 21 }
-    { StudentId = 5; Name = "Richard"; Age = 20 }
+    { StudentId = 1; Name = "Tom"; Age = 21; Grade = 1. }
+    { StudentId = 2; Name = "Dave"; Age = 21; Grade = 2. }
+    { StudentId = 3; Name = "Anna"; Age = 22; Grade = 3. }
+    { StudentId = 4; Name = "Sophie"; Age = 21; Grade = 4. }
+    { StudentId = 5; Name = "Richard"; Age = 20; Grade = 5. }
+    { StudentId = 5; Name = "Richard"; Age = 20; Grade = 6. }
 ]
 
 let q = new Queryable<Student>(Expr.Query.Empty, ExampleImplementation.execute students)
 
 
-
-
-
 let sudentProjection = 
     query { 
         for student in q do
-        where (student.Age = 21)
-        select student.Age
-        contains 21
+        take 2
     }
