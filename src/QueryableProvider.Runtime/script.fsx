@@ -28,6 +28,9 @@ module ExampleImplementation =
             | "Skip" ->
                 let konst = unbox<int> ((getValue parameters.[0]) Unchecked.defaultof<obj>)
                 (fun xs -> Enumerable.Skip(unbox<_> xs, konst) |> box)
+            | "Take" ->
+                let konst = unbox<int> ((getValue parameters.[0]) Unchecked.defaultof<obj>)
+                (fun xs -> Enumerable.Take(unbox<_> xs, konst) |> box)
             | "Contains" ->
                 let konst = (getValue parameters.[0]) Unchecked.defaultof<obj>
                 (fun xs -> Enumerable.Contains(unbox<_> xs, konst) |> box)
@@ -122,4 +125,4 @@ let sudentProjection =
     query { 
         for student in q do
         take 2
-    }
+    } |> Seq.toArray

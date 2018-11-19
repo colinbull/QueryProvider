@@ -166,7 +166,11 @@ module Expression =
 
     let rec reduceType (expr:Expr.QueryExpr) = 
         match expr with
-        | Expr.MethodCall(mi, _) -> mi.ReturnType
+        | Expr.MethodCall(mi, _) -> 
+            let returnType = mi.ReturnType 
+            if returnType.IsGenericType && (returnType.GetGenericTypeDefinition() = typedefof<IQueryable<_>>)
+            then returnType.GenericTypeArguments.[0]
+            else returnType
         | Expr.MemberAccess ma ->
             match ma.MemberType with 
             | MemberTypes.Property -> (ma :?> PropertyInfo).PropertyType
@@ -227,6 +231,7 @@ module Expression =
 
 type QueryProvider(state, executor : (Type * Expr.Query) -> obj) =
     let toIQueryable (query:Expr.Query) =
+        printfn "toIQueryable: %A" query
         let returnType = Expression.computeProjectedType query
         let ty = typedefof<Queryable<_>>.MakeGenericType(returnType)
         ty.GetConstructors().[0].Invoke([|query; executor|]) :?> IQueryable

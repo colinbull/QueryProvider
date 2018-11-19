@@ -12,7 +12,9 @@ exactlyOneOrDefault
 head               
 headOrDefault      
 averageBy   
-nth       
+nth
+skip
+take       
 
 Sort of working
 ===============
@@ -42,10 +44,7 @@ sumByNullable
 minByNullable
 maxByNullable
 averageByNullable
-
-skip
 skipWhile
-take
 takeWhile
 sortByNullable
 sortByNullableDescending
