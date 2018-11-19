@@ -3,8 +3,11 @@ namespace MyNamespace
 open System
 open System.Linq
 open System.Linq.Expressions
+open System.Collections
+open System.Collections.Generic
 open System.Reflection
 open Microsoft.FSharp.Reflection
+open Microsoft.FSharp.Linq.RuntimeHelpers
 open System.Runtime.CompilerServices
 
 [<AutoOpen>]
@@ -26,6 +29,17 @@ module Extensions =
             fld.GetValue(a)
         | _ -> failwithf "Unable to get member info value for type %A" ma.MemberType
     
+
+//type Grouping<'a, 'b> =
+//     { Key : 'a; Items : seq<'b> }
+//     interface IGrouping<'a, 'b> with
+//         member x.Key = x.Key
+//     interface IEnumerable<'b> with
+//         member x.GetEnumerator() = x.Items.GetEnumerator()
+//     interface IEnumerable with
+//         member x.GetEnumerator() = x.Items.GetEnumerator() :> IEnumerator
+     
+         
 
 module Expr =  
 
@@ -53,10 +67,12 @@ module Expr =
         | Sequence of QueryExpr list
 
      type Query = 
-        { Filter : (Type * QueryExpr) option
+        { Grouping : (Type * QueryExpr) option
+          Filter : (Type * QueryExpr) option
           Projections : QueryExpr option }
         static member Empty = 
             { Filter = None; 
+              Grouping = None;
               Projections = None }
 
 module Patterns = 
@@ -93,7 +109,9 @@ module Patterns =
                          match a.NodeType, a with
                          | ExpressionType.MemberAccess, (:? MemberExpression as me) -> 
                             me.Member :: s
-                         | _, _  -> s
+                         | ExpressionType.Call, (:? MethodCallExpression as e)  -> 
+                            (e.Method :> MemberInfo) :: s
+                         | _, _ -> failwithf "Unknown expression in new Type: %A" a.NodeType
                     ) ([])
                 Some (body.Type, projectionMap |> List.rev)
             | _, _ -> None
@@ -195,11 +213,19 @@ module Expression =
         | Sequence ss -> 
             ss |> Seq.last |> reduceType
 
+    let computeGroupingType ty (expr:Expr.QueryExpr) = 
+        let groupingType = typedefof<Grouping<_,_>>
+        let keyType = reduceType expr 
+        groupingType.MakeGenericType([|keyType;ty|])
+
     let computeProjectedType (query:Expr.Query) = 
         match query.Projections with 
         | None ->
             match query.Filter with
-            | None -> typeof<Unit>
+            | None -> 
+                match query.Grouping with 
+                | None -> typeof<Unit> 
+                | Some (t, a) -> computeGroupingType t a
             | Some (t, a) -> t
         | Some a -> reduceType a  
 
@@ -212,20 +238,22 @@ module Expression =
 
     let translate state (e:Expression) = 
         let rec walk state (e:Expression) = 
-            printfn "Walking %A" e
+            
             match e with 
             | MethodCall(None, (MethodWithName "Where"), [_; (Quote (Lambda (source, e)))]) ->
                 { state with Filter = Some(source.[0].Type, map e) }
             | MethodCall(None, (MethodWithName "Select"), [_; (Quote (LambdaProjection (_, projs)))]) ->
                 match projs with
                 | [a] ->
+                    printfn "Walking %A" a
                     { state with Projections = Some(Scalar(MemberAccess a)) }
                 | projs -> 
                     { state with Projections = Some(Vector(projs |> List.map MemberAccess)) }
+            | MethodCall(None, (MethodWithName "GroupBy"), [_; (Quote (Lambda (source, e)))]) ->
+                { state with Grouping = Some(source.[0].Type, map e) }
             | MethodCall(None, method, [_; (Quote (LambdaProjection (_, projs)))]) ->
                 { state with Projections = mergeProjections state.Projections (Some(Scalar(MethodCall(method, projs |> List.map MemberAccess)))) }
             | MethodCall(None, method, args) ->
-                printfn "Calling: %A" method.Name
                 { state with Projections = mergeProjections state.Projections (Some(Scalar(MethodCall(method, args.[1..] |> List.map map)))) }
             | _ -> state
 

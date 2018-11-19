@@ -6,15 +6,30 @@ open System.Linq
 
 module ExampleImplementation = 
 
+    open System.Reflection
+    open Microsoft.FSharp.Reflection
     open Expr
+    
+    
     
     let getValue (q:QueryExpr) = 
         match q with 
         | Const (t, o) -> (fun _ -> o)
-        | MemberAccess ma -> ma.GetValue
+        | MemberAccess ma ->
+            match ma.MemberType with
+            | MemberTypes.Property | MemberTypes.Field -> 
+                (fun x -> ma.GetValue(x))
+            | MemberTypes.Method ->
+                let mi = (ma :?> MethodInfo)
+                (fun x ->
+                     if mi.IsStatic
+                     then (ma :?> MethodInfo).Invoke(null, [|x|])
+                     else (ma :?> MethodInfo).Invoke(x, null)
+                )
+            | _ -> failwithf "Unable to invoke getvalue %A" ma
         | a -> failwithf "Unable to get value from %A" a
 
-    let rec mkFunc (ty:Type) (q:QueryExpr) : (obj -> obj) =
+    let rec mkFunc (q:QueryExpr) : (obj -> obj) =
         match q with  
         | Scalar (MethodCall (method, parameters)) -> 
             match method.Name with 
@@ -62,18 +77,20 @@ module ExampleImplementation =
             | "Distinct" -> (fun xs -> Enumerable.Distinct(unbox<_> xs) |> box) 
             | a -> id
         | Scalar a -> (fun xs -> box(seq { for x in xs |> unbox<seq<obj>> do yield getValue a x }))  
-        | Vector a ->
-            let projected = a |> List.map getValue 
+        | Vector a as x ->
+            let projected = a |> List.map getValue
+            let projectedType = Expression.reduceType x                     
             (fun xs -> box(seq {
-                for x in xs |> unbox<seq<obj>> do 
-                    yield Activator.CreateInstance(ty, [| for projection in projected -> (projection x)|]) 
+                for x in xs |> unbox<seq<obj>> do
+                    let ps = [| for projection in projected -> (projection x)|]
+                    yield Activator.CreateInstance(projectedType, ps) 
              }))
         | Sequence stmts ->
              (fun xs -> 
                  let f = 
                      stmts
                      |> Seq.fold (fun (prev:(obj -> obj) option) (x:QueryExpr) ->
-                         let next = (mkFunc ty x)
+                         let next = (mkFunc x)
                          (fun xss ->
                              match prev with
                              | Some prev -> next (prev xss)
@@ -107,16 +124,29 @@ module ExampleImplementation =
                 | _ -> failwithf "%A not supported for filter expressions" q
             walkExpr x
             
-    let rec mkProjectionFunction (ty:Type) (q:Query) = 
+    let rec mkProjectionFunction (q:Query) = 
         match q.Projections with 
-        | Some a -> mkFunc ty a
+        | Some a -> mkFunc a
         | q -> (fun xs -> box(seq { for x in xs do yield box x }))
-
+                                    
     let execute source (ty,query) = 
         printfn "%A" query
-        let projection = mkProjectionFunction ty query 
-        let filter = mkFilterFunction query
-        source |> Seq.filter filter |> projection     
+        match query.Grouping with 
+        | Some (ty,a) -> 
+            let groupingFunc = getValue a
+            let groupingTy = Expression.computeGroupingType ty a
+            
+            let ctor = groupingTy.GetConstructor([|groupingTy.GenericTypeArguments.[0]; typedefof<seq<_>>.MakeGenericType(groupingTy.GenericTypeArguments.[1])|])
+            let grp =
+                Seq.groupBy (fun x -> groupingFunc x)
+                >> Seq.map (fun (key, items) -> ctor.Invoke([|key; box items|]))
+            let projection = mkProjectionFunction query 
+            let filter = mkFilterFunction query
+            source |> Seq.filter filter |> grp |> projection  
+        | None -> 
+            let projection = mkProjectionFunction query 
+            let filter = mkFilterFunction query
+            source |> Seq.filter filter |> projection     
  
 
 type Student = {
@@ -125,6 +155,7 @@ type Student = {
     Age : int
     Grade : float 
 }
+
 let students = [
     { StudentId = 1; Name = "Tom"; Age = 21; Grade = 1. }
     { StudentId = 2; Name = "Dave"; Age = 21; Grade = 2. }
@@ -136,10 +167,9 @@ let students = [
 
 let q = new Queryable<Student>(Expr.Query.Empty, ExampleImplementation.execute students)
 
-
 let sudentProjection = 
     query { 
         for student in q do
-        groupBy student.Age into g 
+        groupBy student.Name into g
         select (g.Key, g.Count())
     } |> Seq.toArray

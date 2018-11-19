@@ -19,6 +19,7 @@ take
 minBy
 maxBy   
 distinct
+groupBy
 
 Sort of working
 ===============
@@ -27,11 +28,9 @@ Sort of working
 Not working
 ===========
 
-
 exists
 find
 all
-groupBy
 groupByVal
 sortBy
 sortByDescending
@@ -42,7 +41,6 @@ groupJoin
 leftOuterJoin
 skipWhile
 takeWhile
-
 sumByNullable
 minByNullable
 maxByNullable
