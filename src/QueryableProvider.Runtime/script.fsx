@@ -2,15 +2,10 @@
 
 open MyNamespace
 open System
-open System.Reflection
+open System.Linq
 
 module ExampleImplementation = 
 
-    open System
-    open System.Linq
-    open System.Linq.Expressions
-    open System.Reflection
-    open System.Collections
     open Expr
     
     let getValue (q:QueryExpr) = 
@@ -23,8 +18,28 @@ module ExampleImplementation =
         match q with  
         | Scalar (MethodCall (method, parameters)) -> 
             match method.Name with 
-            | "Sum" -> (fun xs -> Convert.ChangeType(xs |> unbox<seq<obj>> |> Seq.sumBy (fun x -> unbox<float>(getValue parameters.[0] x)), ty))
-            | "Average" -> (fun xs -> Convert.ChangeType(xs |> unbox<seq<obj>> |> Seq.averageBy (fun x -> unbox<float>(getValue parameters.[0] x)), ty))
+            | "Sum" -> 
+                (fun xs -> 
+                    let value = xs |> unbox<seq<obj>> |> Seq.sumBy (fun x -> unbox<float>(Convert.ChangeType(getValue parameters.[0] x, typeof<float>)))
+                    Convert.ChangeType(value, Expression.reduceType parameters.[0]) 
+                )
+            | "Average" ->
+                (fun xs -> 
+                    let value = xs |> unbox<seq<obj>> |> Seq.averageBy (fun x -> unbox<float>(Convert.ChangeType(getValue parameters.[0] x, typeof<float>)))
+                    Convert.ChangeType(value, Expression.reduceType parameters.[0]) 
+                )
+            | "Min" -> 
+                (fun xs -> 
+                    let selector = getValue parameters.[0]
+                    let value = xs |> unbox<seq<obj>> |> Seq.minBy (fun x -> unbox<float>(Convert.ChangeType(selector x, typeof<float>)))
+                    Convert.ChangeType(selector value, Expression.reduceType parameters.[0]) 
+                )
+            | "Max" -> 
+                (fun xs -> 
+                    let selector = getValue parameters.[0]
+                    let value = xs |> unbox<seq<obj>> |> Seq.maxBy (fun x -> unbox<float>(Convert.ChangeType(selector x, typeof<float>)))
+                    Convert.ChangeType(selector value, Expression.reduceType parameters.[0]) 
+                )
             | "Skip" ->
                 let konst = unbox<int> ((getValue parameters.[0]) Unchecked.defaultof<obj>)
                 (fun xs -> Enumerable.Skip(unbox<_> xs, konst) |> box)
@@ -44,6 +59,7 @@ module ExampleImplementation =
             | "LastOrDefault" -> (fun xs -> Enumerable.LastOrDefault(unbox<_> xs) |> box)
             | "Single" -> (fun xs -> Enumerable.Single(unbox<_> xs) |> box)
             | "SingleOrDefault" -> (fun xs -> Enumerable.SingleOrDefault(unbox<_> xs) |> box) 
+            | "Distinct" -> (fun xs -> Enumerable.Distinct(unbox<_> xs) |> box) 
             | a -> id
         | Scalar a -> (fun xs -> box(seq { for x in xs |> unbox<seq<obj>> do yield getValue a x }))  
         | Vector a ->
@@ -114,7 +130,7 @@ let students = [
     { StudentId = 2; Name = "Dave"; Age = 21; Grade = 2. }
     { StudentId = 3; Name = "Anna"; Age = 22; Grade = 3. }
     { StudentId = 4; Name = "Sophie"; Age = 21; Grade = 4. }
-    { StudentId = 5; Name = "Richard"; Age = 20; Grade = 5. }
+    { StudentId = 5; Name = "Richard"; Age = 20; Grade = 6. }
     { StudentId = 5; Name = "Richard"; Age = 20; Grade = 6. }
 ]
 
@@ -124,5 +140,6 @@ let q = new Queryable<Student>(Expr.Query.Empty, ExampleImplementation.execute s
 let sudentProjection = 
     query { 
         for student in q do
-        take 2
+        groupBy student.Age into g 
+        select (g.Key, g.Count())
     } |> Seq.toArray

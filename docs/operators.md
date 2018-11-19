@@ -11,26 +11,26 @@ exactlyOne
 exactlyOneOrDefault
 head               
 headOrDefault      
-averageBy   
+averageBy  
+sumBy  
 nth
 skip
-take       
+take    
+minBy
+maxBy   
+distinct
 
 Sort of working
 ===============
-
-sumBy                //Issue with ints invalid cast
 
 
 Not working
 ===========
 
-distinct
+
 exists
 find
 all
-minBy
-maxBy
 groupBy
 groupByVal
 sortBy
@@ -40,12 +40,13 @@ thenByDescending
 join
 groupJoin
 leftOuterJoin
+skipWhile
+takeWhile
+
 sumByNullable
 minByNullable
 maxByNullable
 averageByNullable
-skipWhile
-takeWhile
 sortByNullable
 sortByNullableDescending
 thenByNullable
