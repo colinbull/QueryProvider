@@ -1,6 +1,6 @@
 #load "QueryableProvider.Runtime.fs"
 
-open MyNamespace
+open QueryableProvider
 open System
 open System.Linq
 
@@ -170,6 +170,7 @@ let q = new Queryable<Student>(Expr.Query.Empty, ExampleImplementation.execute s
 let sudentProjection = 
     query { 
         for student in q do
+        where (student.Name = "Richard")
         groupBy student.Name into g
         select (g.Key, g.Count())
     } |> Seq.toArray

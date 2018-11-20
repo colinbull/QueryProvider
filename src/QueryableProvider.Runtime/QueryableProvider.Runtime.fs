@@ -1,4 +1,4 @@
-namespace MyNamespace
+namespace QueryableProvider
 
 open System
 open System.Linq
@@ -29,18 +29,6 @@ module Extensions =
             fld.GetValue(a)
         | _ -> failwithf "Unable to get member info value for type %A" ma.MemberType
     
-
-//type Grouping<'a, 'b> =
-//     { Key : 'a; Items : seq<'b> }
-//     interface IGrouping<'a, 'b> with
-//         member x.Key = x.Key
-//     interface IEnumerable<'b> with
-//         member x.GetEnumerator() = x.Items.GetEnumerator()
-//     interface IEnumerable with
-//         member x.GetEnumerator() = x.Items.GetEnumerator() :> IEnumerator
-     
-         
-
 module Expr =  
 
     type BinOp = 
@@ -154,8 +142,6 @@ module Expression =
     open System.Collections.Generic
     open Microsoft.FSharp.Linq.RuntimeHelpers
 
-    
-
     let tupleTypes = 
         [|  typedefof<System.Tuple<_>>,               typedefof<AnonymousObject<_>>
             typedefof<_ * _>,                         typedefof<AnonymousObject<_, _>>
@@ -221,12 +207,12 @@ module Expression =
     let computeProjectedType (query:Expr.Query) = 
         match query.Projections with 
         | None ->
-            match query.Filter with
+            match query.Grouping with
             | None -> 
-                match query.Grouping with 
+                match query.Filter with 
                 | None -> typeof<Unit> 
-                | Some (t, a) -> computeGroupingType t a
-            | Some (t, a) -> t
+                | Some (t, a) -> t
+            | Some (t, a) -> computeGroupingType t a
         | Some a -> reduceType a  
 
     let mergeProjections (a:QueryExpr option) (b:QueryExpr option) = 
@@ -238,14 +224,13 @@ module Expression =
 
     let translate state (e:Expression) = 
         let rec walk state (e:Expression) = 
-            
+            printfn "Walking %A" e
             match e with 
             | MethodCall(None, (MethodWithName "Where"), [_; (Quote (Lambda (source, e)))]) ->
                 { state with Filter = Some(source.[0].Type, map e) }
             | MethodCall(None, (MethodWithName "Select"), [_; (Quote (LambdaProjection (_, projs)))]) ->
                 match projs with
                 | [a] ->
-                    printfn "Walking %A" a
                     { state with Projections = Some(Scalar(MemberAccess a)) }
                 | projs -> 
                     { state with Projections = Some(Vector(projs |> List.map MemberAccess)) }
@@ -261,7 +246,7 @@ module Expression =
 
 type QueryProvider(state, executor : (Type * Expr.Query) -> obj) =
     let toIQueryable (query:Expr.Query) =
-        printfn "toIQueryable: %A" query
+        printfn "ToIQueryable: %A" query
         let returnType = Expression.computeProjectedType query
         let ty = typedefof<Queryable<_>>.MakeGenericType(returnType)
         ty.GetConstructors().[0].Invoke([|query; executor|]) :?> IQueryable
