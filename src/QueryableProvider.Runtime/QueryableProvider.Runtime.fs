@@ -60,7 +60,7 @@ module Expr =
         | Binary of BinOp * QueryExpr * QueryExpr
         | Unary of UnOp * QueryExpr
         | Const of Type * obj
-        | MemberAccess of MemberInfo
+        | MemberAccess of MemberInfo list
         | MethodCall of MethodInfo * QueryExpr list
         | Scalar of QueryExpr
         | Vector of QueryExpr list
@@ -79,11 +79,18 @@ module Expr =
 
 module Patterns = 
 
-    let (|PropertyGet|_|) (e:Expression) = 
-         match e with 
-         | :? MemberExpression as me -> 
-            Some(Expr.MemberAccess me.Member)
-         | _ -> None 
+    let (|MemberAccess|_|) (e:Expression) = 
+        let rec walkAccess state (e:Expression) =
+             match e with 
+             | :? MemberExpression as me -> 
+                let newState = me.Member :: state
+                if not(isNull me.Expression) 
+                then walkAccess newState me.Expression
+                else newState
+             | _ -> state
+        match walkAccess [] e with
+        | [] -> None 
+        | a -> Some (a |> List.rev |> Expr.MemberAccess)
 
     let (|Constant|_|) (e:Expression) =
         match e with
@@ -179,7 +186,7 @@ module Expression =
     let rec map (e:Expression) = 
         match e with 
         | Constant e -> e
-        | PropertyGet e -> e
+        | MemberAccess e -> e
         | BinaryExpression(op, l, r) -> 
             Expr.Binary(op, map l, map r)
         | a -> failwithf "Could not map expression unsupported: %A" a
@@ -192,6 +199,7 @@ module Expression =
             then returnType.GenericTypeArguments.[0]
             else returnType
         | Expr.MemberAccess ma ->
+            let ma = ma |> List.last
             match ma.MemberType with 
             | MemberTypes.Property -> (ma :?> PropertyInfo).PropertyType
             | MemberTypes.Method -> (ma :?> MethodInfo).ReturnType
@@ -244,22 +252,21 @@ module Expression =
         let rec walk state (e:Expression) = 
             printfn "Walking %A" e
             match e with 
-            | MethodCall(None, (MethodWithName "Where"), [_; (Quote (Lambda (source, e)))]) ->
+            | MethodCall(None, (MethodWithName "Where"), [_; (Quote (Lambda (source, e)))] as a) ->
                 { state with Filter = Some({ Type = source.[0].Type; Expr = map e }) }
             | MethodCall(None, (MethodWithName "Join"), [Constant source; Constant dest; Quote (Lambda (_, sourceKeyExpr)); Quote (Lambda (_, destKeyExpr)); Quote (Lambda (projs, _))]) ->
-                printfn "In Join %A %A %A %A %A" source dest sourceKeyExpr destKeyExpr projs
                 let join = { Source = source; SourceKeyExpr = map sourceKeyExpr; Dest = dest; DestKeyExpr = map destKeyExpr; Projection = projs |> List.map (fun x -> x.Type) }
                 { state with Joins = join :: state.Joins }
             | MethodCall(None, (MethodWithName "Select"), [_; (Quote (LambdaProjection (_, projs)))]) ->
                 match projs with
                 | [a] ->
-                    { state with Projections = Some(Scalar(MemberAccess a)) }
+                    { state with Projections = Some(Scalar(MemberAccess [a])) }
                 | projs -> 
-                    { state with Projections = Some(Vector(projs |> List.map MemberAccess)) }
+                    { state with Projections = Some(Vector(projs |> List.map (fun x -> MemberAccess[x]))) }
             | MethodCall(None, (MethodWithName "GroupBy"), [_; (Quote (Lambda (source, e)))]) ->
                 { state with Grouping = Some({ Type = source.[0].Type; Expr = map e }) }
             | MethodCall(None, method, [_; (Quote (LambdaProjection (_, projs)))]) ->
-                { state with Projections = mergeProjections state.Projections (Some(Scalar(MethodCall(method, projs |> List.map MemberAccess)))) }
+                { state with Projections = mergeProjections state.Projections (Some(Scalar(MethodCall(method, projs |> List.map (fun x -> MemberAccess[x]))))) }
             | MethodCall(None, method, args) ->
                 { state with Projections = mergeProjections state.Projections (Some(Scalar(MethodCall(method, args.[1..] |> List.map map)))) }
             | _ -> state

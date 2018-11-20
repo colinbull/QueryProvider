@@ -37,7 +37,6 @@ sortBy
 sortByDescending
 thenBy
 thenByDescending
-
 groupJoin
 leftOuterJoin
 skipWhile

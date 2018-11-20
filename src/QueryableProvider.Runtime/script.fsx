@@ -15,18 +15,22 @@ module ExampleImplementation =
     let getValue (q:QueryExpr) = 
         match q with 
         | Const (t, o) -> (fun _ -> o)
-        | MemberAccess ma ->
-            match ma.MemberType with
-            | MemberTypes.Property | MemberTypes.Field -> 
-                (fun x -> ma.GetValue(x))
-            | MemberTypes.Method ->
-                let mi = (ma :?> MethodInfo)
-                (fun x ->
-                     if mi.IsStatic
-                     then (ma :?> MethodInfo).Invoke(null, [|x|])
-                     else (ma :?> MethodInfo).Invoke(x, null)
-                )
-            | _ -> failwithf "Unable to invoke getvalue %A" ma
+        | MemberAccess ms ->
+            ((fun x -> x), ms) 
+            ||> List.fold (fun s ma -> 
+                            match ma.MemberType with
+                            | MemberTypes.Property | MemberTypes.Field -> 
+                                (fun x -> ma.GetValue(x) |> s)
+                            | MemberTypes.Method ->
+                                let mi = (ma :?> MethodInfo)
+                                (fun x ->
+                                     if mi.IsStatic
+                                     then (ma :?> MethodInfo).Invoke(null, [|x|])
+                                     else (ma :?> MethodInfo).Invoke(x, null)
+                                     |> s
+                                )
+                            | _ -> failwithf "Unable to invoke getvalue %A" ma
+            )
         | a -> failwithf "Unable to get value from %A" a
 
     let rec mkFunc (q:QueryExpr) : (obj -> obj) =
@@ -212,5 +216,6 @@ let sudentProjection =
     query { 
         for student in studentQueryable do
         join selection in courseEnrollmentQueryable on (student.StudentId = selection.StudentId)
+        where (student.StudentId = 1)
         select (student, selection)
     } |> Seq.toArray
