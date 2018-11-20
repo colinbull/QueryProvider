@@ -109,7 +109,7 @@ module ExampleImplementation =
     let mkFilterFunction (q:Query) = 
         match q.Filter with 
         | None -> (fun _ -> true)
-        | Some (_, x) -> 
+        | Some x -> 
             let rec walkExpr (q:QueryExpr) = 
                 match q with
                 | Binary(op, x ,y) -> 
@@ -122,7 +122,7 @@ module ExampleImplementation =
                     | And -> (fun s -> (walkExpr x s) && (walkExpr y s))
                     | Or -> (fun s -> (walkExpr x s) || (walkExpr y s))
                 | _ -> failwithf "%A not supported for filter expressions" q
-            walkExpr x
+            walkExpr x.Expr
             
     let rec mkProjectionFunction (q:Query) = 
         match q.Projections with 
@@ -130,31 +130,69 @@ module ExampleImplementation =
         | q -> (fun xs -> box(seq { for x in xs do yield box x }))
                                     
     let execute source (ty,query) = 
-        printfn "%A" query
-        match query.Grouping with 
-        | Some (ty,a) -> 
-            let groupingFunc = getValue a
-            let groupingTy = Expression.computeGroupingType ty a
-            
-            let ctor = groupingTy.GetConstructor([|groupingTy.GenericTypeArguments.[0]; typedefof<seq<_>>.MakeGenericType(groupingTy.GenericTypeArguments.[1])|])
-            let grp =
+        printfn "%A %A" source query
+        let grouper = 
+            match query.Grouping with 
+            | Some a -> 
+                let groupingFunc = getValue a.Expr
+                let groupingTy = Expression.computeGroupingType a
+                
+                let ctor = groupingTy.GetConstructor([|groupingTy.GenericTypeArguments.[0]; typedefof<seq<_>>.MakeGenericType(groupingTy.GenericTypeArguments.[1])|])
+                
                 Seq.groupBy (fun x -> groupingFunc x)
                 >> Seq.map (fun (key, items) -> ctor.Invoke([|key; box items|]))
-            let projection = mkProjectionFunction query 
-            let filter = mkFilterFunction query
-            source |> Seq.filter filter |> grp |> projection  
-        | None -> 
-            let projection = mkProjectionFunction query 
-            let filter = mkFilterFunction query
-            source |> Seq.filter filter |> projection     
- 
+            | None -> 
+                Seq.map box      
+        
+        let join = 
+            match query.Joins with 
+            | [] -> Seq.map box
+            | [j] -> 
+                let outer = j.Dest |> function | Const (_, v) -> (v |> unbox<seq<obj>>) | a -> failwithf "Unable to get constant value for join (outer) %A" a 
+                let inner = j.Source |> function | Const (_, v) -> (v |> unbox<seq<obj>>) | a -> failwithf "Unable to get constant value for join (inner) %A" a 
+                let projectedType = FSharpType.MakeTupleType (Array.ofList j.Projection) |> Expression.tupleToAnonType 
+                    
+                (fun x -> Enumerable.Join(outer, inner, 
+                                new Func<_,_>(fun x -> getValue j.DestKeyExpr x), 
+                                new Func<_,_>(fun x -> getValue j.SourceKeyExpr x), 
+                                (fun x y -> printfn "Join projection: %A %A" x y; Activator.CreateInstance(projectedType, [|y;x|])) )
+                )
+            | a -> failwithf "Only a single join supported in this implementation"
 
-type Student = {
-    StudentId : int
-    Name : string
-    Age : int
-    Grade : float 
-}
+        let projection = mkProjectionFunction query 
+        let filter = mkFilterFunction query
+        source |> join |> Seq.filter filter |> grouper |> projection     
+ 
+type Student = 
+    { StudentId : int
+      Name : string
+      Age : int
+      Grade : float }
+
+type CourseEnrollment = 
+    { Id : int 
+      StudentId : int 
+      CourseId : int }
+
+type Course = 
+    { CourseId: int 
+      CourseName : string }
+
+let courses = [
+    { CourseId = 1; CourseName = "Introduction to F#" }
+    { CourseId = 2; CourseName = "Introduction to Functional Programming" }
+    { CourseId = 3; CourseName = "Queryable and Typeproviders" }
+]
+
+let courseEnrollment = [
+    { Id = 1; StudentId = 1; CourseId = 1}
+    { Id = 2; StudentId = 1; CourseId = 2}
+    { Id = 3; StudentId = 2; CourseId = 2}
+    { Id = 4; StudentId = 2; CourseId = 3}
+    { Id = 5; StudentId = 3; CourseId = 1}
+    { Id = 6; StudentId = 3; CourseId = 2}
+    { Id = 7; StudentId = 3; CourseId = 3}
+]
 
 let students = [
     { StudentId = 1; Name = "Tom"; Age = 21; Grade = 1. }
@@ -165,12 +203,14 @@ let students = [
     { StudentId = 5; Name = "Richard"; Age = 20; Grade = 6. }
 ]
 
-let q = new Queryable<Student>(Expr.Query.Empty, ExampleImplementation.execute students)
+let studentQueryable = new Queryable<Student>(Expr.Query.Empty, ExampleImplementation.execute students)
+let courseQueryable = new Queryable<Course>(Expr.Query.Empty, ExampleImplementation.execute courses)
+let courseEnrollmentQueryable = new Queryable<CourseEnrollment>(Expr.Query.Empty, ExampleImplementation.execute courseEnrollment)
+
 
 let sudentProjection = 
     query { 
-        for student in q do
-        where (student.Name = "Richard")
-        groupBy student.Name into g
-        select (g.Key, g.Count())
+        for student in studentQueryable do
+        join selection in courseEnrollmentQueryable on (student.StudentId = selection.StudentId)
+        select (student, selection)
     } |> Seq.toArray

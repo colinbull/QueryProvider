@@ -20,6 +20,7 @@ minBy
 maxBy   
 distinct
 groupBy
+join
 
 Sort of working
 ===============
@@ -36,7 +37,7 @@ sortBy
 sortByDescending
 thenBy
 thenByDescending
-join
+
 groupJoin
 leftOuterJoin
 skipWhile

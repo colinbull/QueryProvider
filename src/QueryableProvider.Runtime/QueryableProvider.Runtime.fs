@@ -44,7 +44,19 @@ module Expr =
         | Not 
         | Neg 
 
-    type QueryExpr = 
+    
+    type Join =
+        { Source : QueryExpr 
+          SourceKeyExpr : QueryExpr
+          Dest : QueryExpr 
+          DestKeyExpr : QueryExpr 
+          Projection : Type list }
+
+    and TypedExpr = 
+        { Type : Type
+          Expr : QueryExpr }
+
+    and QueryExpr = 
         | Binary of BinOp * QueryExpr * QueryExpr
         | Unary of UnOp * QueryExpr
         | Const of Type * obj
@@ -55,15 +67,28 @@ module Expr =
         | Sequence of QueryExpr list
 
      type Query = 
-        { Grouping : (Type * QueryExpr) option
-          Filter : (Type * QueryExpr) option
+        { Grouping : TypedExpr option
+          Joins : Join list
+          Filter : TypedExpr option
           Projections : QueryExpr option }
         static member Empty = 
             { Filter = None; 
               Grouping = None;
+              Joins = []
               Projections = None }
 
 module Patterns = 
+
+    let (|PropertyGet|_|) (e:Expression) = 
+         match e with 
+         | :? MemberExpression as me -> 
+            Some(Expr.MemberAccess me.Member)
+         | _ -> None 
+
+    let (|Constant|_|) (e:Expression) =
+        match e with
+        | :? ConstantExpression as ce -> Some(Expr.Const(ce.Type, ce.Value))
+        | _ -> None
 
     let (|MethodCall|_|) (e:Expression) = 
         match e.NodeType, e with 
@@ -105,17 +130,6 @@ module Patterns =
             | _, _ -> None
         | _ -> None
 
-    let (|PropertyGet|_|) (e:Expression) = 
-         match e with 
-         | :? MemberExpression as me -> 
-            Some(Expr.MemberAccess me.Member)
-         | _ -> None 
-
-    let (|Constant|_|) (e:Expression) =
-        match e with
-        | :? ConstantExpression as ce -> Some(Expr.Const(ce.Type, ce.Value))
-        | _ -> None
-    
     let (|BinaryExpression|_|) (e:Expression) =
         let mapBinaryOperator = function
             | ExpressionType.Equal -> Expr.Eq
@@ -199,20 +213,24 @@ module Expression =
         | Sequence ss -> 
             ss |> Seq.last |> reduceType
 
-    let computeGroupingType ty (expr:Expr.QueryExpr) = 
+    let computeGroupingType (ty:TypedExpr) = 
         let groupingType = typedefof<Grouping<_,_>>
-        let keyType = reduceType expr 
-        groupingType.MakeGenericType([|keyType;ty|])
+        let keyType = reduceType ty.Expr 
+        groupingType.MakeGenericType([|keyType;ty.Type|])
 
     let computeProjectedType (query:Expr.Query) = 
         match query.Projections with 
         | None ->
             match query.Grouping with
-            | None -> 
-                match query.Filter with 
-                | None -> typeof<Unit> 
-                | Some (t, a) -> t
-            | Some (t, a) -> computeGroupingType t a
+            | None ->
+                match query.Joins with 
+                | [] -> 
+                    match query.Filter with 
+                    | None -> typeof<Unit> 
+                    | Some a -> a.Type
+                | [a] -> FSharpType.MakeTupleType (Array.ofList a.Projection) |> tupleToAnonType 
+                | a -> failwithf "Only a single join projection %A supported for joins" a
+            | Some a -> computeGroupingType a
         | Some a -> reduceType a  
 
     let mergeProjections (a:QueryExpr option) (b:QueryExpr option) = 
@@ -227,7 +245,11 @@ module Expression =
             printfn "Walking %A" e
             match e with 
             | MethodCall(None, (MethodWithName "Where"), [_; (Quote (Lambda (source, e)))]) ->
-                { state with Filter = Some(source.[0].Type, map e) }
+                { state with Filter = Some({ Type = source.[0].Type; Expr = map e }) }
+            | MethodCall(None, (MethodWithName "Join"), [Constant source; Constant dest; Quote (Lambda (_, sourceKeyExpr)); Quote (Lambda (_, destKeyExpr)); Quote (Lambda (projs, _))]) ->
+                printfn "In Join %A %A %A %A %A" source dest sourceKeyExpr destKeyExpr projs
+                let join = { Source = source; SourceKeyExpr = map sourceKeyExpr; Dest = dest; DestKeyExpr = map destKeyExpr; Projection = projs |> List.map (fun x -> x.Type) }
+                { state with Joins = join :: state.Joins }
             | MethodCall(None, (MethodWithName "Select"), [_; (Quote (LambdaProjection (_, projs)))]) ->
                 match projs with
                 | [a] ->
@@ -235,7 +257,7 @@ module Expression =
                 | projs -> 
                     { state with Projections = Some(Vector(projs |> List.map MemberAccess)) }
             | MethodCall(None, (MethodWithName "GroupBy"), [_; (Quote (Lambda (source, e)))]) ->
-                { state with Grouping = Some(source.[0].Type, map e) }
+                { state with Grouping = Some({ Type = source.[0].Type; Expr = map e }) }
             | MethodCall(None, method, [_; (Quote (LambdaProjection (_, projs)))]) ->
                 { state with Projections = mergeProjections state.Projections (Some(Scalar(MethodCall(method, projs |> List.map MemberAccess)))) }
             | MethodCall(None, method, args) ->
