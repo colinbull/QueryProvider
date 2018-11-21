@@ -6,7 +6,7 @@ open System.IO
 open System.Reflection
 open FSharp.Quotations
 open FSharp.Core.CompilerServices
-open MyNamespace
+open QueryableProvider
 open ProviderImplementation
 open ProviderImplementation.ProvidedTypes
 
