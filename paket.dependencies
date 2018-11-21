@@ -17,4 +17,5 @@ group Test
   frameworks: net461, netcoreapp2.0
 
   nuget Xunit
+  nuget xunit.runner.visualstudio
   nuget FSharp.Core 4.3.4
