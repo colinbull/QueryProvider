@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Sdk="Microsoft.NET.Sdk">
+<Project>
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
   <PropertyGroup>
     <OutputType>Library</OutputType>
     <TargetFrameworks>netstandard2.0; net45</TargetFrameworks>
@@ -21,9 +22,8 @@
   <ItemGroup>
     <PackageReference Include="FSharp.Core" Version="4.3.4" />
   </ItemGroup>
-  <!--  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" /> -->
   <Import Project="..\..\netfx.props" />
-  <!--  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" /> -->
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
   <Target Name="BeforeBuild">
     <MSBuild Projects="..\QueryableProvider.DesignTime\QueryableProvider.DesignTime.fsproj" Targets="Restore" />
     <MSBuild Projects="..\QueryableProvider.DesignTime\QueryableProvider.DesignTime.fsproj" Targets="Build" Properties="Configuration=$(Configuration);TargetFramework=netcoreapp2.0" />

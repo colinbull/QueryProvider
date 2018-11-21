@@ -1,7 +1,7 @@
 module QueryExprTests
 
 open System
-open MyNamespace
+open QueryableProvider
 open Xunit
 
 type Student = {
@@ -24,12 +24,12 @@ let queryable f =
     new Queryable<Student>(Expr.Query.Empty, f)
 
 [<Fact>]
-let ``select``() = 
+let ``select with identity``() = 
     let test (typ:Type, query:Expr.Query) = 
         Assert.True(true)
         Unchecked.defaultof<obj>
 
     query { 
         for student in (queryable test) do 
-        select student.Age 
+        select student 
     }

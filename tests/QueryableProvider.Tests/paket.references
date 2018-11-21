@@ -1,4 +1,5 @@
 group Test
 Xunit
 xunit.runner.visualstudio
+Microsoft.NET.Test.Sdk
 FSharp.Core

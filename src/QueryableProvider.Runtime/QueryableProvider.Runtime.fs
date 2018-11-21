@@ -16,18 +16,23 @@ module Extensions =
     type MemberInfo with 
 
     [<Extension>]
-    member ma.GetValue(a:obj) = 
-        match ma.MemberType with 
-        | MemberTypes.Property -> 
-            let prop = (ma :?> PropertyInfo)
-            prop.GetValue(a)
-        | MemberTypes.Method -> 
-            let methd = (ma :?> MethodInfo)
-            methd.Invoke(a, [||])
-        | MemberTypes.Field -> 
-            let fld = (ma :?> FieldInfo)
-            fld.GetValue(a)
-        | _ -> failwithf "Unable to get member info value for type %A" ma.MemberType
+    member ma.GetValue(a:obj) =
+        try
+            match ma.MemberType with 
+            | MemberTypes.Property -> 
+                let prop = (ma :?> PropertyInfo)
+                prop.GetValue(a)
+            | MemberTypes.Method -> 
+                let methd = (ma :?> MethodInfo)
+                methd.Invoke(a, [||])
+            | MemberTypes.Field -> 
+                let fld = (ma :?> FieldInfo)
+                fld.GetValue(a)
+            | _ -> failwithf "Unable to get member info value for type %A" ma.MemberType
+        with 
+            | :? TargetException as te -> 
+                raise(new TargetException(sprintf "Target:%A does not match %A" (a.GetType()) ma.DeclaringType))
+
     
 module Expr =  
 
@@ -250,7 +255,7 @@ module Expression =
 
     let translate state (e:Expression) = 
         let rec walk state (e:Expression) = 
-            printfn "Walking %A" e
+       //     printfn "Walking %A" e
             match e with 
             | MethodCall(None, (MethodWithName "Where"), [_; (Quote (Lambda (source, e)))] as a) ->
                 { state with Filter = Some({ Type = source.[0].Type; Expr = map e }) }
@@ -275,7 +280,6 @@ module Expression =
 
 type QueryProvider(state, executor : (Type * Expr.Query) -> obj) =
     let toIQueryable (query:Expr.Query) =
-        printfn "ToIQueryable: %A" query
         let returnType = Expression.computeProjectedType query
         let ty = typedefof<Queryable<_>>.MakeGenericType(returnType)
         ty.GetConstructors().[0].Invoke([|query; executor|]) :?> IQueryable

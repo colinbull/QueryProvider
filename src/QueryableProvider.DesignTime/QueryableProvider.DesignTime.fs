@@ -10,11 +10,6 @@ open QueryableProvider
 open ProviderImplementation
 open ProviderImplementation.ProvidedTypes
 
-// Put any utility helpers here
-[<AutoOpen>]
-module internal Helpers =
-    let x = 1
-
 [<TypeProvider>]
 type BasicErasingProvider (config : TypeProviderConfig) as this =
     inherit TypeProviderForNamespaces (config, assemblyReplacementMap=[("QueryableProvider.DesignTime", "QueryableProvider.Runtime")], addDefaultProbingLocation=true)
@@ -23,7 +18,7 @@ type BasicErasingProvider (config : TypeProviderConfig) as this =
     let asm = Assembly.GetExecutingAssembly()
 
     // check we contain a copy of runtime files, and are not referencing the runtime DLL
-    do assert (typeof<DataSource>.Assembly.GetName().Name = asm.GetName().Name)  
+    do assert (typeof<RuntimeHolder>.Assembly.GetName().Name = asm.GetName().Name)  
 
     let createTypes () =
         let myType = ProvidedTypeDefinition(asm, ns, "MyType", Some typeof<obj>)
@@ -37,7 +32,7 @@ type BasicErasingProvider (config : TypeProviderConfig) as this =
         let innerState = ProvidedProperty("InnerState", typeof<string>, getterCode = fun args -> <@@ (%%(args.[0]) :> obj) :?> string @@>)
         myType.AddMember(innerState)
 
-        let meth = ProvidedMethod("StaticMethod", [], typeof<DataSource>, isStatic=true, invokeCode = (fun args -> Expr.Value(null, typeof<DataSource>)))
+        let meth = ProvidedMethod("StaticMethod", [], typeof<RuntimeHolder>, isStatic=true, invokeCode = (fun args -> Expr.Value(null, typeof<RuntimeHolder>)))
         myType.AddMember(meth)
 
         let nameOf =
@@ -69,7 +64,7 @@ type BasicGenerativeProvider (config : TypeProviderConfig) as this =
     let asm = Assembly.GetExecutingAssembly()
 
     // check we contain a copy of runtime files, and are not referencing the runtime DLL
-    do assert (typeof<DataSource>.Assembly.GetName().Name = asm.GetName().Name)  
+    do assert (typeof<RuntimeHolder>.Assembly.GetName().Name = asm.GetName().Name)  
 
     let createType typeName (count:int) =
         let asm = ProvidedAssembly()
@@ -85,7 +80,7 @@ type BasicGenerativeProvider (config : TypeProviderConfig) as this =
             let prop = ProvidedProperty("Property" + string i, typeof<int>, getterCode = fun args -> <@@ i @@>)
             myType.AddMember(prop)
 
-        let meth = ProvidedMethod("StaticMethod", [], typeof<DataSource>, isStatic=true, invokeCode = (fun args -> Expr.Value(null, typeof<DataSource>)))
+        let meth = ProvidedMethod("StaticMethod", [], typeof<RuntimeHolder>, isStatic=true, invokeCode = (fun args -> Expr.Value(null, typeof<RuntimeHolder>)))
         myType.AddMember(meth)
         asm.AddTypes [ myType ]
 

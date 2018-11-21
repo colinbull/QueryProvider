@@ -1,3 +1,5 @@
+open System.Collections.Generic
+open System
 #load "QueryableProvider.Runtime.fs"
 
 open QueryableProvider
@@ -33,54 +35,54 @@ module ExampleImplementation =
             )
         | a -> failwithf "Unable to get value from %A" a
 
-    let rec mkFunc (q:QueryExpr) : (obj -> obj) =
+    let rec mkProjectionFunction (q:QueryExpr) : (seq<obj> -> obj) =
         match q with  
         | Scalar (MethodCall (method, parameters)) -> 
             match method.Name with 
             | "Sum" -> 
                 (fun xs -> 
-                    let value = xs |> unbox<seq<obj>> |> Seq.sumBy (fun x -> unbox<float>(Convert.ChangeType(getValue parameters.[0] x, typeof<float>)))
+                    let value = xs |> Seq.sumBy (fun x -> unbox<float>(Convert.ChangeType(getValue parameters.[0] x, typeof<float>)))
                     Convert.ChangeType(value, Expression.reduceType parameters.[0]) 
                 )
             | "Average" ->
                 (fun xs -> 
-                    let value = xs |> unbox<seq<obj>> |> Seq.averageBy (fun x -> unbox<float>(Convert.ChangeType(getValue parameters.[0] x, typeof<float>)))
+                    let value = xs |> Seq.averageBy (fun x -> unbox<float>(Convert.ChangeType(getValue parameters.[0] x, typeof<float>)))
                     Convert.ChangeType(value, Expression.reduceType parameters.[0]) 
                 )
             | "Min" -> 
                 (fun xs -> 
                     let selector = getValue parameters.[0]
-                    let value = xs |> unbox<seq<obj>> |> Seq.minBy (fun x -> unbox<float>(Convert.ChangeType(selector x, typeof<float>)))
+                    let value = xs |> Seq.minBy (fun x -> unbox<float>(Convert.ChangeType(selector x, typeof<float>)))
                     Convert.ChangeType(selector value, Expression.reduceType parameters.[0]) 
                 )
             | "Max" -> 
                 (fun xs -> 
                     let selector = getValue parameters.[0]
-                    let value = xs |> unbox<seq<obj>> |> Seq.maxBy (fun x -> unbox<float>(Convert.ChangeType(selector x, typeof<float>)))
+                    let value = xs |> Seq.maxBy (fun x -> unbox<float>(Convert.ChangeType(selector x, typeof<float>)))
                     Convert.ChangeType(selector value, Expression.reduceType parameters.[0]) 
                 )
             | "Skip" ->
                 let konst = unbox<int> ((getValue parameters.[0]) Unchecked.defaultof<obj>)
-                (fun xs -> Enumerable.Skip(unbox<_> xs, konst) |> box)
+                (fun xs -> Enumerable.Skip(xs, konst) |> box)
             | "Take" ->
                 let konst = unbox<int> ((getValue parameters.[0]) Unchecked.defaultof<obj>)
-                (fun xs -> Enumerable.Take(unbox<_> xs, konst) |> box)
+                (fun xs -> Enumerable.Take(xs, konst) |> box)
             | "Contains" ->
                 let konst = (getValue parameters.[0]) Unchecked.defaultof<obj>
-                (fun xs -> Enumerable.Contains(unbox<_> xs, konst) |> box)
+                (fun xs -> Enumerable.Contains(xs, konst) |> box)
             | "ElementAt" ->
                 let konst = unbox<int> ((getValue parameters.[0]) Unchecked.defaultof<obj>)
-                (fun xs -> Enumerable.ElementAt(unbox<_> xs, konst) |> box)   
-            | "Count" -> (fun xs -> Enumerable.Count(unbox<_> xs) |> box)
-            | "First" -> (fun xs -> Enumerable.First(unbox<_> xs) |> box)
-            | "FirstOrDefault" -> (fun xs -> Enumerable.FirstOrDefault(unbox<_> xs) |> box)
-            | "Last" -> (fun xs -> Enumerable.Last(unbox<_> xs) |> box)
-            | "LastOrDefault" -> (fun xs -> Enumerable.LastOrDefault(unbox<_> xs) |> box)
-            | "Single" -> (fun xs -> Enumerable.Single(unbox<_> xs) |> box)
-            | "SingleOrDefault" -> (fun xs -> Enumerable.SingleOrDefault(unbox<_> xs) |> box) 
-            | "Distinct" -> (fun xs -> Enumerable.Distinct(unbox<_> xs) |> box) 
-            | a -> id
-        | Scalar a -> (fun xs -> box(seq { for x in xs |> unbox<seq<obj>> do yield getValue a x }))  
+                (fun xs -> Enumerable.ElementAt(xs, konst) |> box)   
+            | "Count" -> (fun xs -> printfn "In count %A" xs; Enumerable.Count(xs) |> box)
+            | "First" -> (fun xs -> Enumerable.First(xs) |> box)
+            | "FirstOrDefault" -> (fun xs -> Enumerable.FirstOrDefault(xs) |> box)
+            | "Last" -> (fun xs -> Enumerable.Last(xs) |> box)
+            | "LastOrDefault" -> (fun xs -> Enumerable.LastOrDefault(xs) |> box)
+            | "Single" -> (fun xs -> Enumerable.Single(xs) |> box)
+            | "SingleOrDefault" -> (fun xs -> Enumerable.SingleOrDefault(xs) |> box) 
+            | "Distinct" -> (fun xs -> Enumerable.Distinct(xs) |> box) 
+            | a -> raise(NotImplementedException(sprintf "%A scalar projection is not implemented" method.Name))
+        | Scalar a -> (fun xs -> box (Enumerable.Select(xs, new Func<_,_>(fun x -> getValue a x))))  
         | Vector a as x ->
             let projected = a |> List.map getValue
             let projectedType = Expression.reduceType x                     
@@ -93,11 +95,11 @@ module ExampleImplementation =
              (fun xs -> 
                  let f = 
                      stmts
-                     |> Seq.fold (fun (prev:(obj -> obj) option) (x:QueryExpr) ->
-                         let next = (mkFunc x)
+                     |> Seq.fold (fun (prev:(seq<obj> -> obj) option) (x:QueryExpr) ->
+                         let next = (mkProjectionFunction x)
                          (fun xss ->
                              match prev with
-                             | Some prev -> next (prev xss)
+                             | Some prev -> next (unbox<_> (prev xss))
                              | None -> next xss
                          ) |> Some
                      ) None
@@ -107,50 +109,53 @@ module ExampleImplementation =
                      r
                  | None -> box xs
              )
-        | Const (t,c) -> (fun _ -> box(seq { yield c }))
-        | q -> (fun xs -> box(seq { for x in xs |> unbox<seq<obj>> do yield box x }))
+        | Const (t,c) -> (fun _ -> box(Seq.singleton c))
+        | q -> raise(NotImplementedException(sprintf "%A projection is not implemented" q))
 
-    let mkFilterFunction (q:Query) = 
-        match q.Filter with 
-        | None -> (fun _ -> true)
-        | Some x -> 
-            let rec walkExpr (q:QueryExpr) = 
-                match q with
-                | Binary(op, x ,y) -> 
-                    match op with 
-                    | Eq -> (fun s -> (getValue x s) = (getValue y s))
-                    | Gt -> (fun s -> (Unchecked.compare (getValue x s) (getValue y s) > 0))
-                    | Lt -> (fun s -> (Unchecked.compare (getValue x s) (getValue y s) < 0))
-                    | Gte -> (fun s -> (Unchecked.compare (getValue x s) (getValue y s) >= 0))
-                    | Lte -> (fun s -> (Unchecked.compare (getValue x s) (getValue y s) <= 0))
-                    | And -> (fun s -> (walkExpr x s) && (walkExpr y s))
-                    | Or -> (fun s -> (walkExpr x s) || (walkExpr y s))
-                | _ -> failwithf "%A not supported for filter expressions" q
-            walkExpr x.Expr
+    let mkFilterFunction (q:QueryExpr) =  
+        let rec walkExpr (q:QueryExpr) = 
+            match q with
+            | Binary(op, x ,y) -> 
+                match op with 
+                | Eq -> (fun s -> (getValue x s) = (getValue y s))
+                | Gt -> (fun s -> (Unchecked.compare (getValue x s) (getValue y s) > 0))
+                | Lt -> (fun s -> (Unchecked.compare (getValue x s) (getValue y s) < 0))
+                | Gte -> (fun s -> (Unchecked.compare (getValue x s) (getValue y s) >= 0))
+                | Lte -> (fun s -> (Unchecked.compare (getValue x s) (getValue y s) <= 0))
+                | And -> (fun s -> (walkExpr x s) && (walkExpr y s))
+                | Or -> (fun s -> (walkExpr x s) || (walkExpr y s))
+            | _ -> failwithf "%A not supported for filter expressions" q
+        walkExpr q
             
-    let rec mkProjectionFunction (q:Query) = 
-        match q.Projections with 
-        | Some a -> mkFunc a
-        | q -> (fun xs -> box(seq { for x in xs do yield box x }))
-                                    
-    let execute source (ty,query) = 
+    let inline applyOpt opt source = 
+        match opt with 
+        | Some f -> f source 
+        | None -> source
+
+    let execute (source:seq<'a>) (ty,query:Query) = 
         printfn "%A %A" source query
+
         let grouper = 
             match query.Grouping with 
             | Some a -> 
                 let groupingFunc = getValue a.Expr
                 let groupingTy = Expression.computeGroupingType a
+                let enumTy = typedefof<seq<_>>.MakeGenericType(groupingTy.GenericTypeArguments.[1])
+                let ctor = groupingTy.GetConstructor([|groupingTy.GenericTypeArguments.[0]; enumTy|])
                 
-                let ctor = groupingTy.GetConstructor([|groupingTy.GenericTypeArguments.[0]; typedefof<seq<_>>.MakeGenericType(groupingTy.GenericTypeArguments.[1])|])
-                
-                Seq.groupBy (fun x -> groupingFunc x)
-                >> Seq.map (fun (key, items) -> ctor.Invoke([|key; box items|]))
+                (fun x -> 
+                        let grouping = x |> Seq.groupBy (fun x -> groupingFunc x)
+                        printfn "Grouping %A" enumTy
+                        let mapping = grouping |> Seq.map (fun (key, items) -> ctor.Invoke([|key; items.AsEnumerable()|]))
+                        printfn "Mapping %A" grouping
+                        mapping |> Seq.toArray |> Seq.ofArray
+                ) |> Some
             | None -> 
-                Seq.map box      
-        
+                None    
+
         let join = 
             match query.Joins with 
-            | [] -> Seq.map box
+            | [] -> None
             | [j] -> 
                 let outer = j.Dest |> function | Const (_, v) -> (v |> unbox<seq<obj>>) | a -> failwithf "Unable to get constant value for join (outer) %A" a 
                 let inner = j.Source |> function | Const (_, v) -> (v |> unbox<seq<obj>>) | a -> failwithf "Unable to get constant value for join (inner) %A" a 
@@ -161,12 +166,30 @@ module ExampleImplementation =
                                 new Func<_,_>(fun x -> getValue j.SourceKeyExpr x), 
                                 (fun x y -> printfn "Join projection: %A %A" x y; Activator.CreateInstance(projectedType, [|y;x|])) )
                 )
+                |> Some
             | a -> failwithf "Only a single join supported in this implementation"
+                
 
-        let projection = mkProjectionFunction query 
-        let filter = mkFilterFunction query
-        source |> join |> Seq.filter filter |> grouper |> projection     
- 
+        let projection =
+            match query.Projections with 
+            | Some a -> Some(mkProjectionFunction a)
+            | None -> None
+
+        let filter = 
+            match query.Filter with 
+            | Some e -> 
+                let filterFunc = mkFilterFunction e.Expr
+                Some (fun x -> Enumerable.Where(x, new Func<_,_>(filterFunc)))
+            | None -> None
+
+        source 
+        |> Seq.map box  
+        |> applyOpt join
+        |> applyOpt grouper
+        |> applyOpt filter 
+        |> (fun x -> Option.defaultValue (box x) (Option.map (fun p -> p x) projection))
+
+
 type Student = 
     { StudentId : int
       Name : string
@@ -212,10 +235,9 @@ let courseQueryable = new Queryable<Course>(Expr.Query.Empty, ExampleImplementat
 let courseEnrollmentQueryable = new Queryable<CourseEnrollment>(Expr.Query.Empty, ExampleImplementation.execute courseEnrollment)
 
 
-let sudentProjection = 
+let studentProjection = 
     query { 
         for student in studentQueryable do
-        join selection in courseEnrollmentQueryable on (student.StudentId = selection.StudentId)
-        where (student.StudentId = 1)
-        select (student, selection)
+        groupBy student.Age into g
+        select (g.Key, g.Count())
     } |> Seq.toArray
