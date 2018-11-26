@@ -51,36 +51,34 @@ module Expr =
 
     
     type Join =
-        { Source : QueryExpr 
-          SourceKeyExpr : QueryExpr
-          Dest : QueryExpr 
-          DestKeyExpr : QueryExpr 
+        { Source : Expr 
+          SourceKeyExpr : Expr
+          Dest : Expr 
+          DestKeyExpr : Expr 
           Projection : Type list }
 
     and TypedExpr = 
         { Type : Type
-          Expr : QueryExpr }
+          Expr : Expr }
 
-    and QueryExpr = 
-        | Binary of BinOp * QueryExpr * QueryExpr
-        | Unary of UnOp * QueryExpr
+    and Expr = 
+        | Binary of BinOp * Expr * Expr
+        | Unary of UnOp * Expr
         | Const of Type * obj
         | MemberAccess of MemberInfo list
-        | MethodCall of MethodInfo * QueryExpr list
-        | Scalar of QueryExpr
-        | Vector of QueryExpr list
-        | Sequence of QueryExpr list
+        | MethodCall of MethodInfo * Expr list
+        | Scalar of Expr
+        | Vector of Expr list
+        | Sequence of Expr list
+        | Identity
 
-     type Query = 
-        { Grouping : TypedExpr option
-          Joins : Join list
-          Filter : TypedExpr option
-          Projections : QueryExpr option }
-        static member Empty = 
-            { Filter = None; 
-              Grouping = None;
-              Joins = []
-              Projections = None }
+    and QueryExpr = 
+        | Projection of Expr
+        | Filter of TypedExpr 
+        | Join of Join 
+        | Grouping of TypedExpr 
+
+     type Query = QueryExpr list
 
 module Patterns = 
 
@@ -194,9 +192,13 @@ module Expression =
         | MemberAccess e -> e
         | BinaryExpression(op, l, r) -> 
             Expr.Binary(op, map l, map r)
-        | a -> failwithf "Could not map expression unsupported: %A" a
+        | Quote (Lambda (_,e)) ->
+            match e with 
+            | :? ParameterExpression as pe -> Expr.Identity
+            | _ -> failwithf "Unable to map quoted lambda: %A - type: %A" e e.NodeType
+        | a -> failwithf "Could not map expression unsupported: %A - type: %A" a a.NodeType
 
-    let rec reduceType (expr:Expr.QueryExpr) = 
+    let rec reduceType expr = 
         match expr with
         | Expr.MethodCall(mi, _) -> 
             let returnType = mi.ReturnType 
@@ -225,6 +227,7 @@ module Expression =
              |> tupleToAnonType
         | Sequence ss -> 
             ss |> Seq.last |> reduceType
+        | Expr.Identity -> typedefof<_>
 
     let computeGroupingType (ty:TypedExpr) = 
         let groupingType = typedefof<Grouping<_,_>>
@@ -232,48 +235,42 @@ module Expression =
         groupingType.MakeGenericType([|keyType;ty.Type|])
 
     let computeProjectedType (query:Expr.Query) = 
-        match query.Projections with 
-        | None ->
-            match query.Grouping with
-            | None ->
-                match query.Joins with 
-                | [] -> 
-                    match query.Filter with 
-                    | None -> typeof<Unit> 
-                    | Some a -> a.Type
-                | [a] -> FSharpType.MakeTupleType (Array.ofList a.Projection) |> tupleToAnonType 
-                | a -> failwithf "Only a single join projection %A supported for joins" a
-            | Some a -> computeGroupingType a
-        | Some a -> reduceType a  
+        match query with 
+        | [] -> typeof<Unit> 
+        | h :: _ -> 
+            match h with 
+            | Projection a -> reduceType a 
+            | Filter a -> a.Type  
+            | Grouping a -> computeGroupingType a 
+            | Join a -> FSharpType.MakeTupleType (Array.ofList a.Projection) |> tupleToAnonType 
+ 
 
-    let mergeProjections (a:QueryExpr option) (b:QueryExpr option) = 
+    let mergeProjections (a:QueryExpr) (b:QueryExpr) = 
         match a, b with 
-        | Some a, Some b -> Some(Sequence([a;b]))
-        | Some a, _ -> Some(a)
-        | _, Some b -> Some(b)
-        | None, None -> None
+        | Projection a, Projection b -> Projection(Sequence([a;b]))
+        | _, _ -> failwithf "Both expressions must be a projection to merge"
 
     let translate state (e:Expression) = 
         let rec walk state (e:Expression) = 
        //     printfn "Walking %A" e
             match e with 
             | MethodCall(None, (MethodWithName "Where"), [_; (Quote (Lambda (source, e)))] as a) ->
-                { state with Filter = Some({ Type = source.[0].Type; Expr = map e }) }
+                Filter ({ Type = source.[0].Type; Expr = map e }) :: state
             | MethodCall(None, (MethodWithName "Join"), [Constant source; Constant dest; Quote (Lambda (_, sourceKeyExpr)); Quote (Lambda (_, destKeyExpr)); Quote (Lambda (projs, _))]) ->
                 let join = { Source = source; SourceKeyExpr = map sourceKeyExpr; Dest = dest; DestKeyExpr = map destKeyExpr; Projection = projs |> List.map (fun x -> x.Type) }
-                { state with Joins = join :: state.Joins }
+                Join (join) :: state
             | MethodCall(None, (MethodWithName "Select"), [_; (Quote (LambdaProjection (_, projs)))]) ->
                 match projs with
                 | [a] ->
-                    { state with Projections = Some(Scalar(MemberAccess [a])) }
+                    Projection(Scalar(MemberAccess [a])) :: state 
                 | projs -> 
-                    { state with Projections = Some(Vector(projs |> List.map (fun x -> MemberAccess[x]))) }
+                    Projection(Vector(projs |> List.map (fun x -> MemberAccess[x]))) :: state
             | MethodCall(None, (MethodWithName "GroupBy"), [_; (Quote (Lambda (source, e)))]) ->
-                { state with Grouping = Some({ Type = source.[0].Type; Expr = map e }) }
+                QueryExpr.Grouping({ Type = source.[0].Type; Expr = map e }) :: state
             | MethodCall(None, method, [_; (Quote (LambdaProjection (_, projs)))]) ->
-                { state with Projections = mergeProjections state.Projections (Some(Scalar(MethodCall(method, projs |> List.map (fun x -> MemberAccess[x]))))) }
+                mergeProjections state.Head (Projection(Scalar(MethodCall(method, projs |> List.map (fun x -> MemberAccess[x]))))) :: state.Tail 
             | MethodCall(None, method, args) ->
-                { state with Projections = mergeProjections state.Projections (Some(Scalar(MethodCall(method, args.[1..] |> List.map map)))) }
+                mergeProjections state.Head (Projection(Scalar(MethodCall(method, args.[1..] |> List.map map)))) :: state.Tail
             | _ -> state
 
         walk state e
