@@ -16,6 +16,7 @@
     </Compile>
     <Compile Include="AssemblyInfo.fs" />
     <Compile Include="QueryableProvider.Runtime.fs" />
+    <Compile Include="QueryableObjectImpl.fs" />
     <None Include="script.fsx" />
     <None Include="paket.references" />
   </ItemGroup>

@@ -3,7 +3,6 @@ namespace QueryableProvider
 open System
 open System.Linq
 open System.Linq.Expressions
-open System.Collections
 open System.Collections.Generic
 open System.Reflection
 open Microsoft.FSharp.Reflection
@@ -55,7 +54,7 @@ module Expr =
           SourceKeyExpr : Expr
           Dest : Expr 
           DestKeyExpr : Expr 
-          Projection : Type list }
+          Projection : (Type list * Expr) }
 
     and TypedExpr = 
         { Type : Type
@@ -67,22 +66,38 @@ module Expr =
         | Const of Type * obj
         | MemberAccess of MemberInfo list
         | MethodCall of MethodInfo * Expr list
+        | New of Type * Expr list
         | Scalar of Expr
         | Vector of Expr list
         | Sequence of Expr list
-        | Identity
+        | Parameter of Type * string  
 
-    and QueryExpr = 
-        | Projection of Expr
-        | Filter of TypedExpr 
-        | Join of Join 
-        | Grouping of TypedExpr 
-
-     type Query = QueryExpr list
+     type Query = 
+        { Grouping : TypedExpr option
+          Joins : Join list
+          Filter : TypedExpr option
+          Projections : Expr option }
+        static member Empty = 
+            { Filter = None; 
+              Grouping = None;
+              Joins = []
+              Projections = None }
 
 module Patterns = 
 
-    let (|MemberAccess|_|) (e:Expression) = 
+    let rec map (e:Expression) = 
+        match e with 
+        | :? ParameterExpression as p -> Expr.Parameter(p.Type, p.Name) 
+        | Constant e -> e
+        | MemberAccess e -> e
+        | BinaryExpression(op, l, r) -> 
+            Expr.Binary(op, map l, map r)
+        | New (ty, expr) -> 
+            Expr.New (ty, expr)
+        | Quote (Lambda (_,e)) -> map e
+        | a -> failwithf "Could not map expression unsupported: %A - type: %A" a a.NodeType
+
+    and (|MemberAccess|_|) (e:Expression) = 
         let rec walkAccess state (e:Expression) =
              match e with 
              | :? MemberExpression as me -> 
@@ -93,54 +108,61 @@ module Patterns =
              | _ -> state
         match walkAccess [] e with
         | [] -> None 
-        | a -> Some (a |> List.rev |> Expr.MemberAccess)
+        | a -> Some (a |> Expr.MemberAccess)
 
-    let (|Constant|_|) (e:Expression) =
+    and (|Constant|_|) (e:Expression) =
         match e with
         | :? ConstantExpression as ce -> Some(Expr.Const(ce.Type, ce.Value))
         | _ -> None
 
-    let (|MethodCall|_|) (e:Expression) = 
+    and (|MethodCall|_|) (e:Expression) = 
         match e.NodeType, e with 
         | ExpressionType.Call, (:? MethodCallExpression as e) -> 
             Some ((match e.Object with null -> None | obj -> Some obj), e.Method, Seq.toList e.Arguments)
         | _ -> None
 
-    let (|MethodWithName|_|)   (s:string) (m:MethodInfo)   = if s = m.Name then Some () else None
-    let (|PropertyWithName|_|) (s:string) (m:PropertyInfo) = if s = m.Name then Some () else None
+    and (|MethodWithName|_|)   (s:string) (m:MethodInfo)   = if s = m.Name then Some () else None
+    and (|PropertyWithName|_|) (s:string) (m:PropertyInfo) = if s = m.Name then Some () else None
 
-    let (|Quote|) (e:Expression) = 
+    and (|Quote|) (e:Expression) = 
         match e.NodeType, e with 
         | ExpressionType.Quote, (:? UnaryExpression as ce) ->  ce.Operand
         | _ -> e
 
-    let (|Lambda|_|) (e:Expression) = 
+    and (|New|_|) (e:Expression) = 
+        match e.NodeType, e with 
+        | ExpressionType.New, (:? NewExpression as ne) ->
+                let projectionMap = 
+                    ne.Arguments 
+                    |> Seq.fold (fun s a -> 
+                         match a with
+                         | MemberAccess a -> 
+                            a :: s
+                         | MethodCall (_, mi, parms)  -> 
+                            Expr.MethodCall (mi, parms |> List.map map) :: s
+                         | :? ParameterExpression -> s  
+                         | _ -> failwithf "Unknown expression in new Type: %A" a.NodeType
+                    ) ([])
+                Some (e.Type, projectionMap |> List.rev)
+        | _ -> None
+
+    and (|Lambda|_|) (e:Expression) = 
         match e.NodeType, e with 
         | ExpressionType.Lambda, (:? LambdaExpression as ce) ->  Some (Seq.toList ce.Parameters, ce.Body)
         | _ -> None
 
-    let (|LambdaProjection|_|) (e:Expression) =
+    and (|LambdaProjection|_|) (e:Expression) =
         match e with
         | Lambda (sourceType::_, body) ->
-            match body.NodeType, body with
-            | ExpressionType.MemberAccess, (:? MemberExpression as me) -> 
-                Some (body.Type, [me.Member])
-            | ExpressionType.New, (:? NewExpression as ne) ->
-                let projectionMap = 
-                    ne.Arguments 
-                    |> Seq.fold (fun s a -> 
-                         match a.NodeType, a with
-                         | ExpressionType.MemberAccess, (:? MemberExpression as me) -> 
-                            me.Member :: s
-                         | ExpressionType.Call, (:? MethodCallExpression as e)  -> 
-                            (e.Method :> MemberInfo) :: s
-                         | _, _ -> failwithf "Unknown expression in new Type: %A" a.NodeType
-                    ) ([])
-                Some (body.Type, projectionMap |> List.rev)
-            | _, _ -> None
+            match body with
+            | MemberAccess a -> 
+                Some a
+            | New (_, a) -> 
+                Some (Expr.Vector a)            
+            | _ -> None
         | _ -> None
 
-    let (|BinaryExpression|_|) (e:Expression) =
+    and (|BinaryExpression|_|) (e:Expression) =
         let mapBinaryOperator = function
             | ExpressionType.Equal -> Expr.Eq
             | ExpressionType.LessThan -> Expr.Lt
@@ -156,15 +178,11 @@ module Patterns =
             let op = mapBinaryOperator expr.NodeType
             Some (op, expr.Left, expr.Right)
         | _ -> None
-
-    
   
 module Expression = 
 
     open Expr
     open Patterns
-    open System.Collections.Generic
-    open Microsoft.FSharp.Linq.RuntimeHelpers
 
     let tupleTypes = 
         [|  typedefof<System.Tuple<_>>,               typedefof<AnonymousObject<_>>
@@ -181,22 +199,35 @@ module Expression =
         for (tupleTy,anonTy) in tupleTypes do dict.[tupleTy] <- anonTy
         dict        
 
+    let anonTypeToTupleMap = 
+        let dict = new Dictionary<Type,Type>()
+        for (tupleTy,anonTy) in tupleTypes do dict.[tupleTy] <- anonTy
+        dict    
+
     let tupleToAnonType (ty:Type) = 
         let t = ty.GetGenericTypeDefinition()
         let mappedAnonType = tupleToAnonymousTypeMap.[t]
         mappedAnonType.MakeGenericType(ty.GenericTypeArguments)
 
-    let rec map (e:Expression) = 
-        match e with 
-        | Constant e -> e
-        | MemberAccess e -> e
-        | BinaryExpression(op, l, r) -> 
-            Expr.Binary(op, map l, map r)
-        | Quote (Lambda (_,e)) ->
-            match e with 
-            | :? ParameterExpression as pe -> Expr.Identity
-            | _ -> failwithf "Unable to map quoted lambda: %A - type: %A" e e.NodeType
-        | a -> failwithf "Could not map expression unsupported: %A - type: %A" a a.NodeType
+    let anonTypeToTupleType (ty:Type) =
+        let t = ty.GetGenericTypeDefinition()
+        let mappedTupleType = tupleToAnonymousTypeMap.[t]
+        mappedTupleType.MakeGenericType(ty.GenericTypeArguments)
+
+
+    let getTypeOrQueryableType (e:Expression) = 
+        let returnType = e.Type
+        if returnType.IsGenericType && (returnType.GetGenericTypeDefinition() = typedefof<IQueryable<_>>)
+        then returnType.GenericTypeArguments.[0]
+        else returnType
+
+    let unwrapGenericArgsOrType (e:Expression) = 
+        let returnType = e.Type
+        if returnType.IsGenericType && 
+           ((returnType.GetGenericTypeDefinition() = typedefof<IQueryable<_>>) 
+            || (tupleTypes |> Array.exists (fun (_,x) -> x = returnType.GetGenericTypeDefinition()))) 
+        then returnType.GenericTypeArguments
+        else [|returnType|]
 
     let rec reduceType expr = 
         match expr with
@@ -227,77 +258,86 @@ module Expression =
              |> tupleToAnonType
         | Sequence ss -> 
             ss |> Seq.last |> reduceType
-        | Expr.Identity -> typedefof<_>
+        | Expr.New (ty, _) -> ty 
+        | Parameter(ty, _) -> ty
 
     let computeGroupingType (ty:TypedExpr) = 
-        let groupingType = typedefof<Grouping<_,_>>
+        let groupingType = typedefof<IGrouping<_,_>>
         let keyType = reduceType ty.Expr 
         groupingType.MakeGenericType([|keyType;ty.Type|])
 
+    let computeJoinType (joins:Join list) = 
+        let joinTypes = 
+            [  let d = new Dictionary<Type, obj>() 
+               for { Projection = (j, _) } in joins do
+                  for p in j do 
+                     if not(d.ContainsKey(p))
+                     then yield p 
+            ]
+        FSharpType.MakeTupleType (Array.ofList joinTypes) |> tupleToAnonType 
+
     let computeProjectedType (query:Expr.Query) = 
-        match query with 
-        | [] -> typeof<Unit> 
-        | h :: _ -> 
-            match h with 
-            | Projection a -> reduceType a 
-            | Filter a -> a.Type  
-            | Grouping a -> computeGroupingType a 
-            | Join a -> FSharpType.MakeTupleType (Array.ofList a.Projection) |> tupleToAnonType 
- 
+        match query.Projections with 
+        | None ->
+            match query.Grouping with
+            | None ->
+                match query.Joins with 
+                | [] -> 
+                    match query.Filter with 
+                    | None -> typeof<Unit> 
+                    | Some a -> a.Type
+                | a -> computeJoinType a
+            | Some a -> computeGroupingType a
+        | Some a -> reduceType a  
 
-    let mergeProjections (a:QueryExpr) (b:QueryExpr) = 
+    let mergeProjections (a:Expr option) (b:Expr option) = 
         match a, b with 
-        | Projection a, Projection b -> Projection(Sequence([a;b]))
-        | _, _ -> failwithf "Both expressions must be a projection to merge"
+        | Some a, Some b -> Some(Sequence([a;b]))
+        | Some a, _ -> Some(a)
+        | _, Some b -> Some(b)
+        | None, None -> None
 
-    let translate state (e:Expression) = 
+    let translate state (e:Expression) =
         let rec walk state (e:Expression) = 
-       //     printfn "Walking %A" e
             match e with 
             | MethodCall(None, (MethodWithName "Where"), [_; (Quote (Lambda (source, e)))] as a) ->
-                Filter ({ Type = source.[0].Type; Expr = map e }) :: state
-            | MethodCall(None, (MethodWithName "Join"), [Constant source; Constant dest; Quote (Lambda (_, sourceKeyExpr)); Quote (Lambda (_, destKeyExpr)); Quote (Lambda (projs, _))]) ->
-                let join = { Source = source; SourceKeyExpr = map sourceKeyExpr; Dest = dest; DestKeyExpr = map destKeyExpr; Projection = projs |> List.map (fun x -> x.Type) }
-                Join (join) :: state
-            | MethodCall(None, (MethodWithName "Select"), [_; (Quote (LambdaProjection (_, projs)))]) ->
-                match projs with
-                | [a] ->
-                    Projection(Scalar(MemberAccess [a])) :: state 
-                | projs -> 
-                    Projection(Vector(projs |> List.map (fun x -> MemberAccess[x]))) :: state
+                { state with Filter = Some({ Type = source.[0].Type; Expr = map e }) }
+            | MethodCall(None, (MethodWithName "Join"), [Constant source; Constant dest; Quote (Lambda (_, sourceKeyExpr)); Quote (Lambda (_, destKeyExpr)); Quote (Lambda (projs, e))]) ->
+                let join = { Source = source; SourceKeyExpr = map sourceKeyExpr; Dest = dest; DestKeyExpr = map destKeyExpr; Projection = (projs |> Seq.collect unwrapGenericArgsOrType |> Seq.toList, map e) }
+                { state with Joins = state.Joins @ [join] }
+            | MethodCall(None, (MethodWithName "Select"), [_; (Quote (LambdaProjection proj))]) ->
+                { state with Projections = Some(proj) }
             | MethodCall(None, (MethodWithName "GroupBy"), [_; (Quote (Lambda (source, e)))]) ->
-                QueryExpr.Grouping({ Type = source.[0].Type; Expr = map e }) :: state
-            | MethodCall(None, method, [_; (Quote (LambdaProjection (_, projs)))]) ->
-                mergeProjections state.Head (Projection(Scalar(MethodCall(method, projs |> List.map (fun x -> MemberAccess[x]))))) :: state.Tail 
+                { state with Grouping = Some({ Type = source.[0].Type; Expr = map e }) }
+            | MethodCall(None, method, [_; (Quote (LambdaProjection proj))]) ->
+                { state with Projections = mergeProjections state.Projections (Some(proj)) }
             | MethodCall(None, method, args) ->
-                mergeProjections state.Head (Projection(Scalar(MethodCall(method, args.[1..] |> List.map map)))) :: state.Tail
+                { state with Projections = mergeProjections state.Projections (Some(Scalar(MethodCall(method, args.[1..] |> List.map map)))) }
             | _ -> state
-
         walk state e
 
 type QueryProvider(state, executor : (Type * Expr.Query) -> obj) =
-    let toIQueryable (query:Expr.Query) =
-        let returnType = Expression.computeProjectedType query
-        let ty = typedefof<Queryable<_>>.MakeGenericType(returnType)
+    let toIQueryable ty (query:Expr.Query) =
+        let ty = typedefof<Queryable<_>>.MakeGenericType([|ty|])
         ty.GetConstructors().[0].Invoke([|query; executor|]) :?> IQueryable
     
     interface IQueryProvider with
         member x.CreateQuery(e:Expression) : IQueryable =
             Expression.translate state e 
-            |> toIQueryable
+            |> toIQueryable (Expression.getTypeOrQueryableType e)
 
         member x.CreateQuery<'T>(e:Expression) : IQueryable<'T> = 
             Expression.translate state e 
-            |> toIQueryable  
+            |> toIQueryable (Expression.getTypeOrQueryableType e) 
             :?> IQueryable<'T>
             
         member x.Execute(e:Expression) : obj =
             let query = Expression.translate state e 
-            executor (Expression.computeProjectedType query, query)  |> box
+            executor ((Expression.computeProjectedType query), query)  |> box
 
         member x.Execute<'a>(e:Expression) : 'a =
             let query = Expression.translate state e 
-            executor (Expression.computeProjectedType query, query) |> unbox<'a>
+            executor ((Expression.computeProjectedType query), query) |> unbox<'a>
 
 and Queryable<'T>(state, executor) =
      
