@@ -262,7 +262,7 @@ module Expression =
         | Parameter(ty, _) -> ty
 
     let computeGroupingType (ty:TypedExpr) = 
-        let groupingType = typedefof<IGrouping<_,_>>
+        let groupingType = typedefof<Grouping<_,_>>
         let keyType = reduceType ty.Expr 
         groupingType.MakeGenericType([|keyType;ty.Type|])
 

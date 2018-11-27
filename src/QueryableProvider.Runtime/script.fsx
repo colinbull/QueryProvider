@@ -53,6 +53,6 @@ let studentProjection =
         for student in studentQueryable do
         join selection in courseEnrollmentQueryable on (student.StudentId = selection.StudentId)
         join course in courseQueryable on (selection.CourseId = course.CourseId)
-        groupBy course.CourseId into g 
-        select (g.Key, g.Count())
+       // groupBy student.Age into g 
+        select (student.Name, course.CourseName)
     } |> Seq.toArray
