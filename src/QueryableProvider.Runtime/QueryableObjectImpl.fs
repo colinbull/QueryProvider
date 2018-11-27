@@ -159,19 +159,6 @@ module QueryableObjectImpl =
         let groupingTy =  Expression.computeGroupingType a    
         let ctor = groupingTy.GetConstructor([|groupingTy.GenericTypeArguments.[0]; typedefof<seq<_>>.MakeGenericType(groupingTy.GenericTypeArguments.[1])|])
         
-        // let ty = typeof<Enumerable>
-        // let tyArgs = [|groupingTy.GenericTypeArguments.[1]; groupingTy.GenericTypeArguments.[0]|]
-        // let grouper = 
-        //     ty.GetMethods()
-        //     |> Seq.filter (fun x -> x.Name = "GroupBy" && x.IsGenericMethodDefinition && (x.GetGenericArguments()).Count() = 2 && (x.GetParameters()).Count() = 2)
-        //     |> Seq.map (fun x -> x.GetGenericMethodDefinition().MakeGenericMethod(tyArgs))
-        //     |> Seq.head
-
-        // printfn "GroupBy mehtod %A" grouper
-
-
-        // fun xs -> grouper.Invoke(null, [|xs, new Func<_,_>(groupingFunc)|]) 
-
         Seq.groupBy (fun x -> groupingFunc x)
          >> Seq.map (fun (key, items) -> ctor.Invoke ([|key; items |])) 
 
